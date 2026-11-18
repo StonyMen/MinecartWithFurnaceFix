@@ -29,9 +29,12 @@ import org.bukkit.util.Vector;
  * position is {@code path.pointAt(s + offset)}. A curve cannot change that
  * distance, which is the entire fix for trains tearing apart on corners.
  *
- * The vanilla minecart is pinned in place: max speed zero, no physics, zero
- * velocity. It still ticks, so fuel burns and right-click ignition still work,
- * but it can no longer move itself, shove its neighbours, or be shoved.
+ * The vanilla minecart keeps ticking — fuel burns, right-click ignition still
+ * works and the client still reads its velocity — but it is taken out of the
+ * collision world and its position is re-teleported onto the arc length every
+ * tick, so what vanilla does with it in between cannot accumulate. Its speed is
+ * written back each tick as well: it is the only thing the client uses to
+ * decide whether to play the rolling sound.
  */
 public final class TrainMover {
 
@@ -66,9 +69,6 @@ public final class TrainMover {
 
     /** Vertical steps the walker tries when it looks for the next rail. */
     private static final int[] PROBE_DY = {0, 1, -1};
-
-    /** What a vanilla minecart uses. Restored whenever a cart leaves a train. */
-    private static final double VANILLA_MAX_SPEED = 0.4;
 
     /**
      * Ticks a freshly assembled train is allowed before its fuel is checked.
@@ -210,6 +210,11 @@ public final class TrainMover {
         if (stale && stalled && frontLimit && forward != null
                 && stallTicks % STALL_RETRY_TICKS != 0) {
             train.speed(0.0);
+            // Parked against the end of the line, waiting for the next retry.
+            // No cart is placed on this path, so the velocity has to be taken
+            // down here or the rolling sound would keep playing while the
+            // train stands still.
+            stopAll(train);
             return;
         }
 
@@ -223,10 +228,11 @@ public final class TrainMover {
                 // the walker can try — the remembered one, the furnace push,
                 // and all four axes — comes up empty. Without a path there is
                 // no way to place a single cart, so this consist can never move
-                // again, and every cart in it is pinned (max speed zero, no
-                // physics) so the player cannot push it free either. Hand the
-                // whole thing back to vanilla at once, with an empty furnace so
-                // the engine does not drive itself off wherever it landed.
+                // again, and the carts are pinned by the teleport rather than by
+                // vanilla, which is not a state a player can push them out of.
+                // Hand the whole thing back to vanilla at once, with an empty
+                // furnace so the engine does not drive itself off wherever it
+                // landed.
                 pathFailures++;
                 manager.derail(train, "no rail under the engine");
                 return;
@@ -266,14 +272,14 @@ public final class TrainMover {
 
         // The cache now matches the ground, so this is the real answer to
         // "is there still track in the direction the train is going?". If there
-        // is not, the train cannot get itself out of the situation: every cart
-        // in it is pinned (max speed zero, no physics), so the player cannot
-        // push it, cannot tow it, and the wagons are welded to the furnace. A
-        // line that ends here is either a rail someone tore out or a track
-        // that was never finished — both mean this consist is going nowhere
-        // until it is rebuilt. Hand the carts back to vanilla instead of
-        // leaving them stuck; because it is only reached on a retry tick, a
-        // dead end is confirmed within one STALL_RETRY_TICKS window.
+        // is not, the train cannot get itself out of the situation: the teleport
+        // owns every cart's position, so the player cannot push it, cannot tow
+        // it, and the wagons are welded to the furnace. A line that ends here is
+        // either a rail someone tore out or a track that was never finished —
+        // both mean this consist is going nowhere until it is rebuilt. Hand the
+        // carts back to vanilla instead of leaving them stuck; because it is
+        // only reached on a retry tick, a dead end is confirmed within one
+        // STALL_RETRY_TICKS window.
         //
         // Which end to look at is the end the train is heading for. A consist
         // stoked from the front runs backwards: it has a long path ahead of it
@@ -334,7 +340,12 @@ public final class TrainMover {
             Vector engineTangent = s >= 0.0 || backward.isEmpty()
                     ? forward.tangentAt(Math.max(0.0, s))
                     : backward.tangentAt(Math.min(backward.length(), -s)).multiply(-1.0);
-            place(engine, engineTarget, engineTangent);
+            place(engine, engineTarget, engineTangent, speed);
+        } else {
+            // Standing on the last rail block of the line: nothing to place,
+            // but the cart must not keep reporting the speed it had before it
+            // stopped or the rolling sound would play on forever.
+            stop(engine);
         }
 
         for (Train.Member member : new ArrayList<>(train.wagons())) {
@@ -380,7 +391,7 @@ public final class TrainMover {
                 continue;
             }
 
-            place(cart, target, tangent);
+            place(cart, target, tangent, speed);
         }
 
         // Keep heading aligned with the rail, not with the frozen velocity.
@@ -390,19 +401,16 @@ public final class TrainMover {
     }
 
     /**
-     * Vanilla is still ticking the entity; these three lines are what keep it
-     * from moving. Speed zero stops momentum, max speed zero stops
-     * {@code moveAlongTrack} from advancing, no physics stops block and entity
-     * collisions from shoving it.
+     * Takes the cart out of the world's collision handling.
+     *
+     * Only physics is switched off here. Max speed is left at the vanilla value
+     * on purpose: vanilla clamps a minecart's velocity to its max speed every
+     * tick, so pinning it to zero would also wipe the velocity that the client
+     * reads for the rolling sound — the train would be silent again. Position
+     * is owned by {@link #place}, which re-teleports every cart onto its arc
+     * length each tick regardless of what vanilla did with it in between.
      */
     private void freeze(Minecart cart) {
-        Vector velocity = cart.getVelocity();
-        if (velocity.lengthSquared() > 1.0E-8) {
-            cart.setVelocity(ZERO);
-        }
-        if (cart.getMaxSpeed() != 0.0) {
-            cart.setMaxSpeed(0.0);
-        }
         if (!cart.hasNoPhysics()) {
             cart.setNoPhysics(true);
         }
@@ -412,18 +420,15 @@ public final class TrainMover {
      * Hands a cart back to vanilla.
      *
      * {@link #freeze} runs every tick on every member, so a cart that leaves a
-     * train keeps "cannot move" on itself until something undoes it. That was
-     * the bug: destroying the engine dissolved the records but left every wagon
-     * pinned, and they stood there as if still coupled.
+     * train keeps "cannot collide" on itself until something undoes it. That
+     * was the bug: destroying the engine dissolved the records but left every
+     * wagon untouchable, and they stood there as if still coupled.
      */
     public void unfreeze(Minecart cart) {
         if (cart == null || !cart.isValid() || cart.isDead()) {
             return;
         }
         try {
-            if (cart.getMaxSpeed() != VANILLA_MAX_SPEED) {
-                cart.setMaxSpeed(VANILLA_MAX_SPEED);
-            }
             if (cart.hasNoPhysics()) {
                 cart.setNoPhysics(false);
             }
@@ -662,7 +667,23 @@ public final class TrainMover {
         }
     }
 
-    private void place(Minecart cart, Vector target, Vector tangent) {
+    /**
+     * Puts a cart where the path says it is and tells the client how fast it is
+     * going.
+     *
+     * The teleport is the authoritative move: it lands the cart exactly on its
+     * arc length, and it is skipped when neither position nor yaw changed. The
+     * velocity is not skipped with it. It is what the client reads to decide
+     * whether the cart is rolling — the {@code entity.minecart.riding} loop,
+     * with volume and pitch taken from the speed — so it has to be written
+     * every tick even when the cart has not moved a measurable distance.
+     *
+     * Vanilla does not get to act on this vector: max speed is zero, so
+     * {@code moveAlongTrack} cannot advance the cart, and the teleport above
+     * owns the position. It is a report, not a push.
+     */
+    private void place(Minecart cart, Vector target, Vector tangent, double speed) {
+        Vector velocity = tangent.clone().multiply(speed);
         float yaw = yawOf(tangent);
         Location current = cart.getLocation();
         if (current.getWorld() == null) {
@@ -670,17 +691,34 @@ public final class TrainMover {
         }
         Location destination = new Location(current.getWorld(),
                 target.getX(), target.getY(), target.getZ(), yaw, 0.0f);
-        if (current.distanceSquared(destination) <= 1.0E-6
-                && Math.abs(wrapDegrees(current.getYaw() - yaw)) <= 0.5) {
-            return;
-        }
-        try {
-            cart.teleport(destination);
-            teleports++;
-        } catch (RuntimeException e) {
-            if (config.debug) {
-                manager.log("teleport refused: " + e.getMessage());
+        if (current.distanceSquared(destination) > 1.0E-6
+                || Math.abs(wrapDegrees(current.getYaw() - yaw)) > 0.5) {
+            try {
+                cart.teleport(destination);
+                teleports++;
+            } catch (RuntimeException e) {
+                if (config.debug) {
+                    manager.log("teleport refused: " + e.getMessage());
+                }
             }
+        }
+        if (cart.getVelocity().distanceSquared(velocity) > 1.0E-8) {
+            cart.setVelocity(velocity);
+        }
+    }
+
+    /** Brings a cart to a stop in the world, for the paths that place nothing. */
+    private static void stop(Minecart cart) {
+        if (cart.getVelocity().lengthSquared() > 1.0E-8) {
+            cart.setVelocity(ZERO);
+        }
+    }
+
+    /** Same, for a whole consist. */
+    private static void stopAll(Train train) {
+        stop(train.engine());
+        for (Train.Member member : train.wagons()) {
+            stop(member.cart());
         }
     }
 

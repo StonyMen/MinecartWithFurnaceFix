@@ -1,0 +1,61 @@
+# MinecartWithFurnaceFix
+#
+# The coupling layer is rebuilt, the operation is not.
+#
+# The furnace minecart still burns coal, still takes a right-click to start,
+# and still uses vanilla fuel and push values. What changes is what happens
+# between carts: the train moves as one body with a single speed, and every
+# cart keeps a fixed distance measured along the rail. Contact no longer
+# couples anything, so a curve cannot pull the train apart.
+#
+# The vanilla minecart entity is pinned in place (max speed 0, no physics) and
+# positioned by the plugin. That is also why a wall in front stops the whole
+# train instead of compressing the carts into one block.
+
+enabled: true
+
+train:
+  # 相邻车厢的中心间距（格）。必须大于 0.98，否则车厢会互相压着。
+  spacing: 1.05
+
+  # 一节动力矿车最多带几节车厢（含动力车自身）。原版上限是 4 节车厢。
+  max-members: 5
+
+  # 允许编组的最大长度（格），同时也是找车时的搜索半径。
+  max-length: 8.0
+
+  # 判定“在同一根轨道上”的最大横向偏差（格）。
+  max-offset: 0.75
+
+  # 车厢离目标点超过这个距离才解除编组。位置由插件算，正常不会触发；
+  # 它只是用来兜住被玩家拆走、被传送门带走的情况。
+  break-distance: 6.0
+
+  # 同一节车的编组尝试间隔（tick）。
+  scan-interval: 10
+
+path:
+  # 一次探路缓存多少格轨道。越大越少重建，弯道越稳。
+  lookahead-blocks: 48
+
+physics:
+  # 最大速度，格/tick。原版矿车上限 0.4（8 格/秒）。
+  max-speed: 0.4
+
+  # 有燃料时每 tick 增加的加速度。原版大约 4 秒到满速。
+  acceleration: 0.006
+
+  # 每 tick 的速度保留比例，原版矿车摩擦约 0.997。
+  friction: 0.997
+
+  # 坡度重力：切向的 y 分量乘这个值，从速度里扣除。
+  gravity: 0.02
+
+  # 没有动力时的恒定减速，格/tick²。原版矿车滑行约 15~20 秒停下。
+  rolling-resistance: 0.001
+
+  # 低于这个速度且没有动力时直接归零，避免无休止地滑。
+  stop-speed: 0.002
+
+# 打开后会把编组建立、断开、探路失败的原因打到控制台。
+debug: false

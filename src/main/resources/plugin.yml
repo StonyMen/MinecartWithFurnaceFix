@@ -1,8 +1,14 @@
 main: io.github.stonym.minecartwithfurnacefix.MinecartWithFurnaceFix
-version: 1.0.0
 name: MinecartWithFurnaceFix
+version: '${version}'
 author: StonyM
-description: A Minecraft development project.
-api-version: 1.21
-
-
+description: Rail-path train control. The furnace minecart keeps vanilla physics; wagons are carried along the rail by arc length instead of by collision.
+api-version: '1.21'
+commands:
+  mwff:
+    description: MinecartWithFurnaceFix administration
+    usage: /mwff <stats|here|reload>
+permissions:
+  mwff.admin:
+    description: Access to the /mwff command
+    default: op

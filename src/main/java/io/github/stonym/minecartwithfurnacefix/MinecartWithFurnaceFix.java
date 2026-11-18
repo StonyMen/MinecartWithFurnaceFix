@@ -1,26 +1,42 @@
 package io.github.stonym.minecartwithfurnacefix;
 
-import org.bukkit.plugin.java.JavaPlugin;
+import io.github.stonym.minecartwithfurnacefix.command.MwffCommand;
+import io.github.stonym.minecartwithfurnacefix.listeners.TrainListener;
 import io.github.stonym.minecartwithfurnacefix.managers.PluginManager;
-import io.github.stonym.minecartwithfurnacefix.listeners.PlayerListener;
+import org.bukkit.command.PluginCommand;
+import org.bukkit.plugin.java.JavaPlugin;
 
-public class MinecartWithFurnaceFix extends JavaPlugin {
-    
+public final class MinecartWithFurnaceFix extends JavaPlugin {
+
+    private PluginManager pluginManager;
+
     @Override
     public void onEnable() {
-        
-        // Initialize managers
-        PluginManager.getInstance().initialize();
-        
-        // Register listeners
-        getServer().getPluginManager().registerEvents(new PlayerListener(), this);
-        
-        getLogger().info(getDescription().getName() + " has been enabled!");
+        saveDefaultConfig();
+
+        pluginManager = new PluginManager(this);
+        pluginManager.initialize();
+
+        getServer().getPluginManager().registerEvents(new TrainListener(pluginManager), this);
+
+        PluginCommand command = getCommand("mwff");
+        if (command != null) {
+            MwffCommand executor = new MwffCommand(pluginManager);
+            command.setExecutor(executor);
+            command.setTabCompleter(executor);
+        }
+
+        getLogger().info("Enabled: rail-path train control, engine physics untouched.");
     }
 
     @Override
     public void onDisable() {
-        getLogger().info(getDescription().getName() + " has been disabled!");
+        if (pluginManager != null) {
+            pluginManager.shutdown();
+        }
     }
-    
+
+    public PluginManager pluginManager() {
+        return pluginManager;
+    }
 }

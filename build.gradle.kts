@@ -1,7 +1,5 @@
 plugins {
     java
-    
-    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 group = "io.github.stonym.minecartwithfurnacefix"
@@ -13,16 +11,16 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:26.3-R0.1-SNAPSHOT")
-    compileOnly("org.projectlombok:lombok:1.18.34")
-    annotationProcessor("org.projectlombok:lombok:1.18.34")
-    
+    compileOnly("io.papermc.paper:paper-api:26.3.build.255-stable")
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
 }
 
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
-    sourceCompatibility = "25"
-    targetCompatibility = "25"
 }
 
 tasks.processResources {

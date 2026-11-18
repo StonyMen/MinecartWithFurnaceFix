@@ -28,5 +28,8 @@ physics:
   # 有燃料时的矿车速度，格/刻（默认: 0.2）
   cruise-speed: 0.2
 
+  # 开上通电动力铁轨后能达到的最高速度，格/刻（默认: 0.4）
+  powered-speed: 0.4
+
 
 debug: false

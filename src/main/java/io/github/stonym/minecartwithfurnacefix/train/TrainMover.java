@@ -293,7 +293,7 @@ public final class TrainMover {
             return;
         }
 
-        speed = direction * config.cruiseSpeed;
+        speed = speedFor(direction, RailWalker.poweredRailUnder(engineLocation));
 
         // A wall in front of the train shortens the usable path. Clamping here
         // stops the engine from pushing the rest of the train into the wall:
@@ -435,13 +435,33 @@ public final class TrainMover {
     }
 
     /**
+     * Speed for this tick.
+     *
+     * Two values, chosen by the rail under the engine: {@code cruise-speed}
+     * while the furnace is doing the work, and {@code powered-speed} while the
+     * engine stands on a powered rail that is currently switched on. Vanilla
+     * caps any minecart at 8 blocks a second on a powered rail — 0.4 blocks
+     * per tick — and drives furnace minecarts with them, so a consist that
+     * hits a booster really does pull away from the coal-powered crawl.
+     *
+     * The change is one tick, in both directions. Nothing is remembered
+     * between ticks here, which also means a booster cannot leak its speed
+     * into the rest of the line: the tick after the last powered rail is a
+     * plain {@code cruise-speed} tick again.
+     */
+    private double speedFor(int direction, boolean powered) {
+        return direction * (powered ? config.poweredSpeed : config.cruiseSpeed);
+    }
+
+    /**
      * Latches which way along the rail the furnace is pushing.
      *
      * A lit furnace drives the train at a constant {@code cruise-speed}:
      * vanilla moves a furnace minecart at 4 blocks a second — 0.2 blocks per
      * tick, a little slower than walking — and neither a downhill nor a
      * powered rail changes that. Nothing accelerates, coasts on a grade or
-     * brakes, which is also why no incline can hold the train back.
+     * brakes, which is also why no incline can hold the train back. The one
+     * speed change is a powered rail, see {@link #speedFor}.
      *
      * The only thing that can change is the direction, and only on a stoke.
      * Everything else keeps the latched sign, which is what stops a bend from

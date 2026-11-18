@@ -22,6 +22,7 @@ public final class PluginConfig {
     public final int lookaheadBlocks;
 
     public final double cruiseSpeed;
+    public final double poweredSpeed;
 
     public final boolean debug;
 
@@ -59,11 +60,19 @@ public final class PluginConfig {
 
         // What a lit furnace minecart actually does in vanilla: 4 blocks a
         // second, i.e. 0.2 blocks/tick, held constant — uphill, downhill and
-        // through powered rails alike. It is also the only speed this plugin
-        // has: a consist that runs out of fuel is dissolved, not left to
-        // coast, so there is no second regime to configure.
+        // between boosters alike. A consist that runs out of fuel is dissolved
+        // rather than left to coast, so there is no second regime below this
+        // one.
         this.cruiseSpeed = Math.max(1.0E-4,
                 c.getDouble("physics.cruise-speed", 0.2));
+
+        // What a powered rail adds. Vanilla lets any minecart reach 8 blocks a
+        // second on a switched-on powered rail — 0.4 blocks/tick — and drives
+        // furnace minecarts the same way, so the boost is the same number.
+        // Kept above the cruise speed: a booster that made the train slower
+        // than its own furnace would only be a trap for a server owner.
+        this.poweredSpeed = Math.max(this.cruiseSpeed,
+                c.getDouble("physics.powered-speed", 0.4));
 
         this.debug = c.getBoolean("debug", false);
     }

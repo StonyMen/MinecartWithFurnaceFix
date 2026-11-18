@@ -3,10 +3,12 @@ package io.github.stonym.minecartwithfurnacefix.rail;
 import java.util.ArrayList;
 import java.util.List;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.Rail;
+import org.bukkit.block.data.type.RedstoneRail;
 import org.bukkit.util.Vector;
 
 /**
@@ -234,5 +236,40 @@ public final class RailWalker {
         int y = location.getBlockY();
         int z = location.getBlockZ();
         return isRail(world.getBlockAt(x, y, z)) || isRail(world.getBlockAt(x, y - 1, z));
+    }
+
+    /**
+     * Whether the rail a cart standing here rides on is a powered rail that is
+     * currently switched on.
+     *
+     * Same coordinates as {@link #standsOnRail}, but the order matters here: a
+     * powered rail one block down means nothing if the cart is already riding
+     * the plain rail in its own block, which is what a second line underneath
+     * looks like. So the block the cart occupies decides first, and the block
+     * below is only consulted when that one is not a rail at all — the case of
+     * an ascending rail, whose surface carries the cart into the block above.
+     */
+    public static boolean poweredRailUnder(Location location) {
+        if (location == null) {
+            return false;
+        }
+        World world = location.getWorld();
+        if (world == null) {
+            return false;
+        }
+        int x = location.getBlockX();
+        int y = location.getBlockY();
+        int z = location.getBlockZ();
+        Block at = world.getBlockAt(x, y, z);
+        if (isRail(at)) {
+            return isPoweredRail(at);
+        }
+        return isPoweredRail(world.getBlockAt(x, y - 1, z));
+    }
+
+    private static boolean isPoweredRail(Block block) {
+        return block.getType() == Material.POWERED_RAIL
+                && block.getBlockData() instanceof RedstoneRail rail
+                && rail.isPowered();
     }
 }

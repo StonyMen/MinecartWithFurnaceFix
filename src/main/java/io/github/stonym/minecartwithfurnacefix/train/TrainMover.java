@@ -4,6 +4,7 @@ import io.github.stonym.minecartwithfurnacefix.config.PluginConfig;
 import io.github.stonym.minecartwithfurnacefix.rail.RailPath;
 import io.github.stonym.minecartwithfurnacefix.rail.RailWalker;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -111,6 +112,12 @@ public final class TrainMover {
         // tick. The walk only happens when the train reaches the end of the
         // cached section, so corners never trigger a re-walk.
         double speed = train.speed();
+
+        // Offsets were whatever the carts were standing on when the train
+        // formed. Equalising them here, before the path is checked, keeps the
+        // length requirement in step with the slots we are about to place.
+        evenOutSpacing(train, speed);
+
         double maxOffset = train.maxOffset();
         double minOffset = train.minOffset();
         RailPath forward = train.forward();
@@ -356,6 +363,59 @@ public final class TrainMover {
             speed = 0.0;
         }
         return speed;
+    }
+
+    /**
+     * Slides every cart towards an even spacing.
+     *
+     * A train inherits whatever gaps it was assembled with: one pair may be
+     * 1.05 apart and the next 3.2. Once the train is rolling, each cart creeps
+     * along the rail towards its ordinal slot by at most
+     * {@code spacing-converge} per tick, so the gaps end up identical without
+     * any visible jump.
+     *
+     * Skipped while parked, because a train standing still is either being
+     * loaded by hand or serving as decoration, and moving the carts then would
+     * fight the player.
+     */
+    private void evenOutSpacing(Train train, double speed) {
+        if (config.spacingConverge <= 0.0 || train.wagons().isEmpty()) {
+            return;
+        }
+        if (Math.abs(speed) < config.stopSpeed) {
+            return;
+        }
+
+        List<Train.Member> ahead = new ArrayList<>();
+        List<Train.Member> behind = new ArrayList<>();
+        for (Train.Member member : train.wagons()) {
+            if (member.offset() > 0.0) {
+                ahead.add(member);
+            } else {
+                behind.add(member);
+            }
+        }
+        // Nearest first on both sides, so slot 1 is always the closest cart.
+        Comparator<Train.Member> byOffset =
+                Comparator.comparingDouble((Train.Member member) -> member.offset());
+        ahead.sort(byOffset);
+        behind.sort(byOffset.reversed());
+
+        pull(ahead, 1.0);
+        pull(behind, -1.0);
+    }
+
+    private void pull(List<Train.Member> ordered, double sign) {
+        for (int index = 0; index < ordered.size(); index++) {
+            Train.Member member = ordered.get(index);
+            double target = sign * (index + 1) * config.spacing;
+            double delta = target - member.offset();
+            if (Math.abs(delta) <= 1.0E-4) {
+                continue;
+            }
+            double step = Math.min(Math.abs(delta), config.spacingConverge);
+            member.offset(member.offset() + Math.signum(delta) * step);
+        }
     }
 
     private void place(Minecart cart, Vector target, Vector tangent) {

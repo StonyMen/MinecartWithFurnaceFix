@@ -22,8 +22,35 @@ import org.bukkit.util.Vector;
  */
 public final class Train {
 
-    /** A wagon and its signed arc-length offset from the engine. */
-    public record Member(Minecart cart, double offset) {
+    /**
+     * A wagon and its signed arc-length offset from the engine.
+     *
+     * The offset is mutable on purpose: it starts as wherever the cart was
+     * standing when the train formed, then slides towards an even spacing once
+     * the train rolls. Mutating it is how the gaps equalise without teleporting
+     * anything.
+     */
+    public static final class Member {
+
+        private final Minecart cart;
+        private double offset;
+
+        public Member(Minecart cart, double offset) {
+            this.cart = cart;
+            this.offset = offset;
+        }
+
+        public Minecart cart() {
+            return cart;
+        }
+
+        public double offset() {
+            return offset;
+        }
+
+        public void offset(double offset) {
+            this.offset = offset;
+        }
     }
 
     private final int id;

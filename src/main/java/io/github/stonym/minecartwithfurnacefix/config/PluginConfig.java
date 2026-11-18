@@ -13,6 +13,7 @@ public final class PluginConfig {
     public final boolean enabled;
 
     public final double spacing;
+    public final double spacingConverge;
     public final int maxMembers;
     public final double maxLength;
     public final double maxOffset;
@@ -38,6 +39,11 @@ public final class PluginConfig {
         // A minecart is 0.98 wide, so anything below 1.0 makes the two carts
         // permanently overlap and fight each other.
         this.spacing = Math.max(1.0, c.getDouble("train.spacing", 1.05));
+
+        // How far a cart may slide along the rail per tick while the gaps are
+        // being equalised. 0 disables the whole thing.
+        this.spacingConverge = Math.max(0.0,
+                c.getDouble("train.spacing-converge", 0.03));
         this.maxMembers = Math.max(2, c.getInt("train.max-members", 5));
         this.maxLength = Math.max(spacing * (maxMembers - 1) + 0.5,
                 c.getDouble("train.max-length", 8.0));

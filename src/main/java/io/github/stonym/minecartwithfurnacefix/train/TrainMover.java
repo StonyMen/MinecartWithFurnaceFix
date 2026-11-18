@@ -113,10 +113,12 @@ public final class TrainMover {
         }
 
         // Distance is the one part of membership that needs no bookkeeping: a
-        // cart that is nowhere near the engine cannot belong to it. This is
-        // what frees wagons when the engine is destroyed, teleported away, or
-        // adopted by something else while our records are still stale.
-        double detachSq = config.detachDistance * config.detachDistance;
+        // cart that is nowhere near the engine cannot belong to it. Every slot
+        // is at most max-length away, so nothing inside a healthy consist can
+        // trip this; what does trip it is the outside world — the engine being
+        // destroyed, a teleport, a portal, another plugin moving the cart while
+        // our records are still stale.
+        double detachSq = config.maxLength * config.maxLength;
         for (Train.Member member : new ArrayList<>(train.wagons())) {
             Minecart cart = member.cart();
             if (!cart.getWorld().equals(world)) {
@@ -284,6 +286,8 @@ public final class TrainMover {
             backward = RailPath.empty();
         }
 
+        final double breakDistanceSq = config.breakDistance * config.breakDistance;
+
         // Engine. A path with nothing ahead means the engine is standing on the
         // last rail block of the line; leave it exactly where it is instead of
         // asking an empty path for a position.
@@ -331,11 +335,11 @@ public final class TrainMover {
                 continue;
             }
 
-            // Safety net: if something teleported the cart far away (a player
-            // breaking it, a portal, another plugin), let it go instead of
-            // yanking it back through blocks.
+            // Safety net: something moved the cart far from the slot its offset
+            // asks for — a player dragging it, a portal, another plugin. Let it
+            // go rather than yanking it back through blocks.
             if (cart.getLocation().toVector().distanceSquared(target)
-                    > Math.pow(config.breakDistance, 2.0)) {
+                    > breakDistanceSq) {
                 manager.release(train, cart, "left its slot");
                 continue;
             }

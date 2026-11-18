@@ -18,7 +18,6 @@ public final class PluginConfig {
     public final double maxLength;
     public final double maxOffset;
     public final double breakDistance;
-    public final double detachDistance;
     public final int pathFailLimit;
     public final int scanInterval;
     public final boolean clearFuelOnDerail;
@@ -49,14 +48,19 @@ public final class PluginConfig {
         this.maxLength = Math.max(spacing * (maxMembers - 1) + 0.5,
                 c.getDouble("train.max-length", 8.0));
         this.maxOffset = Math.max(0.1, c.getDouble("train.max-offset", 0.75));
-        this.breakDistance = Math.max(1.0, c.getDouble("train.break-distance", 6.0));
-
-        // 0 means "follow max-length". Anything higher than the train length
-        // releases a wagon the moment it drifts out of reach of the engine.
-        double rawDetach = c.getDouble("train.detach-distance", 0.0);
-        this.detachDistance = rawDetach <= 0.0
-                ? this.maxLength
-                : Math.max(1.0, rawDetach);
+        // Both release checks are derived, not configured.
+        //
+        // Reach: every slot sits at most max-length from the engine, so a cart
+        // further away than that cannot belong to this train — it was
+        // teleported, carried through a portal, or the engine was destroyed
+        // while our records were stale. Nothing inside a healthy consist can
+        // cross it.
+        //
+        // Slot: a cart that is nowhere near where its own offset says it
+        // should be has left the train even if it is still close to the
+        // engine. One train length plus one cart gap is the widest a slot can
+        // legitimately be, so anything beyond that is not drift, it is a move.
+        this.breakDistance = this.maxLength + this.spacing;
 
         this.pathFailLimit = Math.max(1, c.getInt("train.path-fail-limit", 100));
 

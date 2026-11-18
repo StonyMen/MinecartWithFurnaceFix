@@ -1,34 +1,43 @@
 # ===== MinecartWithFurnaceFix ===== #
 
 # 总开关
+# Master switch
 enabled: true
 
 train:
   # 矿车之间的间距，格（默认: 1.5）
+  # Gap between the carts, in blocks (default: 1.5)
   spacing: 1.5
 
   # 开动后把间距拉整齐的速度，格/刻（默认: 0.03）
+  # How fast the gaps are evened out once the train rolls, in blocks/tick (default: 0.03)
   spacing-converge: 0.03
 
   # 一列车最多挂几节，含动力矿车（默认: 5）
+  # Most carts in one train, furnace minecart included (default: 5)
   max-members: 5
 
   # 编组半径距离，格（默认: 8.0）
+  # Radius within which carts are coupled, in blocks (default: 8.0)
   max-length: 8.0
 
   # 判定为同一根轨道的横向容差，格（默认: 0.75）
+  # Sideways tolerance when deciding two carts share one rail, in blocks (default: 0.75)
   max-offset: 0.75
 
 
 path:
   # 一次向前看多少格的轨道，格。一般不用动（默认: 64）
+  # How much track to look ahead at once, in blocks. Usually leave it alone (default: 64)
   lookahead-blocks: 64
 
 physics:
   # 有燃料时的矿车速度，格/刻（默认: 0.2）
+  # Train speed while it has fuel, in blocks/tick (default: 0.2)
   cruise-speed: 0.2
 
   # 开上通电动力铁轨后能达到的最高速度，格/刻（默认: 0.4）
+  # Top speed on a powered rail that is switched on, in blocks/tick (default: 0.4)
   powered-speed: 0.4
 
 

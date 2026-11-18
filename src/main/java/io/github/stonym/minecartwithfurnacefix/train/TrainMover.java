@@ -364,18 +364,26 @@ public final class TrainMover {
     private double updateSpeed(Train train, PoweredMinecart engine,
             RailPath forward, RailPath backward, double s) {
         long fuel = engine.getFuel();
+        Vector stoke = train.consumeReignite();
 
         if (fuel > 0) {
-            // Direction is latched, exactly as vanilla locks it: only a fresh
-            // ignition — fuel going from nothing to something — is allowed to
-            // pick a new one. See Train#pushSign.
-            if (train.lastFuel() <= 0 || train.pushSign() == 0) {
-                int latched = latchSign(train, engine, forward, s);
-                if (latched != train.pushSign() && config.debug) {
-                    manager.log("train " + train.id() + ": ignition direction "
-                            + latched);
+            // Two events may pick a direction: a stoke, and the fuel going
+            // from nothing to something. Everything else keeps the latched
+            // one, which is what stops a bend from turning the train around.
+            if (stoke != null || train.lastFuel() <= 0 || train.pushSign() == 0) {
+                Vector push = stoke != null ? stoke
+                        : new Vector(engine.getPushX(), 0.0, engine.getPushZ());
+                Vector tangent = forward == null || forward.isEmpty()
+                        ? flatten(train.heading())
+                        : forward.tangentAt(Math.max(0.0, s));
+                int latched = signOf(push, tangent, train.pushSign());
+                if (latched != 0 && latched != train.pushSign()) {
+                    if (config.debug) {
+                        manager.log("train " + train.id() + ": direction " + latched
+                                + (stoke != null ? " (stoked)" : " (ignited)"));
+                    }
+                    train.pushSign(latched);
                 }
-                train.pushSign(latched);
             }
             train.lastFuel(fuel);
             return train.pushSign() * config.cruiseSpeed;
@@ -388,39 +396,39 @@ public final class TrainMover {
     }
 
     /**
-     * Reads the direction off the furnace, once per ignition.
+     * Which way along the rail a push points.
      *
-     * The push vector is written at ignition and the cached path is walked
-     * along it, so in the normal case this is simply +1. Both fallbacks mean
-     * "keep what it was doing" rather than guessing: a push perpendicular to
-     * the rail says nothing at all about which way along it to travel, and with
-     * no earlier reading the honest answer is zero — the train stands still
-     * until the furnace gives a usable direction. Guessing there is what sends
-     * a freshly lit train off backwards.
-     *
-     * @return +1 with increasing {@code s}, -1 against it, 0 when unknown
+     * @param push     horizontal direction the furnace is being pushed in
+     * @param tangent  rail tangent at the engine, in the forward path's frame
+     * @param fallback what to keep when the push says nothing — a push at right
+     *                 angles to the rail moves the cart sideways, not along
+     *                 the track, so there is no honest answer to give
+     * @return +1 with increasing {@code s}, -1 against it, or {@code fallback}
      */
-    private int latchSign(Train train, PoweredMinecart engine, RailPath forward, double s) {
-        Vector push = new Vector(engine.getPushX(), 0.0, engine.getPushZ());
-        if (push.lengthSquared() <= 1.0E-8) {
-            return train.pushSign();
+    public static int signOf(Vector push, Vector tangent, int fallback) {
+        Vector flatPush = horizontal(push);
+        Vector flatTangent = horizontal(tangent);
+        if (flatPush == null || flatTangent == null) {
+            return fallback;
         }
-        push.normalize();
-
-        Vector tangent = forward.isEmpty() ? flatten(train.heading())
-                : forward.tangentAt(Math.max(0.0, s));
-        if (tangent == null) {
-            return train.pushSign();
-        }
-
-        double dot = push.getX() * tangent.getX() + push.getZ() * tangent.getZ();
+        double dot = flatPush.getX() * flatTangent.getX()
+                + flatPush.getZ() * flatTangent.getZ();
         if (dot >= PUSH_CLEAR) {
             return 1;
         }
         if (dot <= -PUSH_CLEAR) {
             return -1;
         }
-        return train.pushSign();
+        return fallback;
+    }
+
+    /** Unit horizontal component, or null when there is none. */
+    private static Vector horizontal(Vector raw) {
+        if (raw == null) {
+            return null;
+        }
+        Vector flat = raw.clone().setY(0.0);
+        return flat.lengthSquared() < 1.0E-8 ? null : flat.normalize();
     }
 
     /**

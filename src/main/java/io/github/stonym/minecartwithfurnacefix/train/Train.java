@@ -76,21 +76,63 @@ public final class Train {
      * Which way along the cached path the furnace is pushing: +1 with
      * increasing {@code s}, -1 against it, 0 until it has been read once.
      *
-     * Vanilla latches this: while there is fuel left, nothing changes which way
-     * a furnace minecart travels — not pushing it, not blocking it, not
-     * derailing it. Only letting the fuel burn out and stoking it again picks a
-     * new direction. Re-deriving it every tick is what made trains turn around
-     * in the middle of a bend: the push is a fixed world vector written at
-     * ignition, the rail turns 90 degrees under it, and the sign of the dot
-     * product flips as soon as the angle passes a right angle.
+     * Vanilla latches this between events: rolling, being pushed by hand,
+     * being blocked by a wall or jumping the rail never changes it, but two
+     * things do — letting the fuel burn out and stoking the cart again, and
+     * stoking it while it is still burning, because every stoke re-writes the
+     * push from the player's position. Re-deriving it from the push every tick
+     * was the bug that turned trains around mid-bend: the push is a fixed
+     * world vector, the rail turns 90 degrees under it, and the sign of the
+     * dot product flips as soon as the angle passes a right angle.
      */
     private int pushSign;
 
     /**
-     * Fuel reading at the end of the previous tick. A rise from zero is the
-     * only event that is allowed to pick a new direction.
+     * Fuel reading at the end of the previous tick. A rise from zero is one of
+     * the two events that pick a direction; the other is a stoke, see
+     * {@link #reignite}.
      */
     private long lastFuel = -1;
+
+    /**
+     * A stoke the player just performed, as a horizontal unit vector pointing
+     * from the player towards the engine. Null when nothing is pending.
+     *
+     * Vanilla shoves a furnace minecart on every stoke: the push vector is
+     * written from where the player is standing, so stoking from in front of
+     * the cart drives it back the other way. That happens while fuel is still
+     * burning too, which is why a stoke is a direction change and not just a
+     * refuel — hold coal and right-click repeatedly and the cart turns over
+     * each time.
+     *
+     * The vector is read from the world instead of from
+     * {@code engine.getPushX()} because vanilla may keep the old push when the
+     * fuel tank is already burning, and because the interact event fires
+     * before vanilla writes anything at all.
+     */
+    private Vector reignite;
+
+    /**
+     * Records a stoke. The mover reads it on the next tick and clears it, so a
+     * single right-click can never be applied twice.
+     */
+    public void reignite(Vector playerToEngine) {
+        if (playerToEngine == null) {
+            return;
+        }
+        Vector flat = playerToEngine.clone().setY(0.0);
+        if (flat.lengthSquared() < 1.0E-8) {
+            return;
+        }
+        this.reignite = flat.normalize();
+    }
+
+    /** The pending stoke, cleared as it is handed out. */
+    public Vector consumeReignite() {
+        Vector pending = reignite;
+        reignite = null;
+        return pending;
+    }
 
     /** Consecutive ticks the train has been standing still. */
     private int stallTicks;

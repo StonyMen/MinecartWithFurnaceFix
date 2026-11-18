@@ -87,6 +87,30 @@ public final class TrainManager {
     }
 
     /**
+     * A player stoked the furnace, which in vanilla is also a shove: the push
+     * is written as "away from the player", so stoking from the other side of
+     * the cart sends it back the way it came. Recording it here and letting
+     * the mover apply it on the next tick keeps event handling read-only and
+     * avoids reading the engine's push before vanilla has written it.
+     */
+    public void requestReignite(PoweredMinecart engine, Location playerLocation) {
+        Train train = byMember.get(engine.getUniqueId());
+        if (train == null || playerLocation == null) {
+            return;
+        }
+        Location cart = engine.getLocation();
+        if (cart.getWorld() == null || !cart.getWorld().equals(playerLocation.getWorld())) {
+            return;
+        }
+        Vector push = cart.toVector().subtract(playerLocation.toVector());
+        train.reignite(push);
+        if (config.debug) {
+            log("train " + train.id() + ": stoked, push "
+                    + String.format("(%.2f, %.2f)", push.getX(), push.getZ()));
+        }
+    }
+
+    /**
      * Slow sweep: adopts carts that appeared next to an existing train but
      * never moved (a cart placed by a player does not fire a move event).
      */

@@ -1,0 +1,35 @@
+plugins {
+    java
+    
+    id("com.github.johnrengelman.shadow") version "8.1.1"
+}
+
+group = "io.github.stonym.minecartwithfurnacefix"
+version = "1.0.0"
+
+repositories {
+    mavenCentral()
+    maven("https://repo.papermc.io/repository/maven-public/")
+}
+
+dependencies {
+    compileOnly("io.papermc.paper:paper-api:26.3-R0.1-SNAPSHOT")
+    compileOnly("org.projectlombok:lombok:1.18.34")
+    annotationProcessor("org.projectlombok:lombok:1.18.34")
+    
+}
+
+tasks.withType<JavaCompile> {
+    options.encoding = "UTF-8"
+    sourceCompatibility = "25"
+    targetCompatibility = "25"
+}
+
+tasks.processResources {
+    val props = mapOf("version" to version)
+    inputs.properties(props)
+    filteringCharset = "UTF-8"
+    filesMatching("plugin.yml") {
+        expand(props)
+    }
+}

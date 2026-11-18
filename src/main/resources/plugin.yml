@@ -1,0 +1,8 @@
+main: io.github.stonym.minecartwithfurnacefix.MinecartWithFurnaceFix
+version: 1.0.0
+name: MinecartWithFurnaceFix
+author: StonyM
+description: A Minecraft development project.
+api-version: 1.21
+
+

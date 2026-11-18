@@ -2,11 +2,8 @@ package io.github.stonym.minecartwithfurnacefix.listeners;
 
 import io.github.stonym.minecartwithfurnacefix.managers.PluginManager;
 import io.github.stonym.minecartwithfurnacefix.rail.RailWalker;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Minecart;
-import org.bukkit.entity.Player;
 import org.bukkit.entity.minecart.PoweredMinecart;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -51,10 +48,12 @@ public final class TrainListener implements Listener {
             return;
         }
         if (!RailWalker.standsOnRail(engine.getLocation())) {
+            // Refused before vanilla sees it, so the furnace never gets the coal.
+            // The client has already taken one off its own stack by then, which is
+            // why the count blinks: resync immediately instead of waiting for the
+            // next inventory update.
             event.setCancelled(true);
-            Player player = event.getPlayer();
-            player.sendActionBar(Component.text(
-                    "动力矿车不在铁轨上，加不了煤", NamedTextColor.RED));
+            event.getPlayer().updateInventory();
             return;
         }
         pluginManager.trainManager().stoke(engine, event.getPlayer().getLocation());

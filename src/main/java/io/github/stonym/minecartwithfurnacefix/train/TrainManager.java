@@ -408,22 +408,22 @@ public final class TrainManager {
     }
 
     /**
-     * Breaks a train up because the track in front of it is gone.
+     * Breaks a train up because the line under or in front of it is gone.
      *
      * Dissolving is the whole point: it unfreezes every cart, so the player can
      * push them again instead of finding a consist welded to a dead end.
      *
-     * The fuel is cleared by default. A furnace minecart that still has fuel
-     * pushes itself along, and from the end of a broken line that means
-     * launching itself off the rails — possibly landing on the same track a
-     * block further on, which is exactly where the wagons it just left are
-     * standing, so the whole train would be assembled again and repeat. With an
-     * empty tank it simply stands there until someone rebuilds the rail and
-     * stokes it, and stoking is also what picks a fresh direction.
+     * The furnace is always emptied. A minecart that still has fuel pushes
+     * itself along, and from a torn rail that means launching itself off the
+     * line — possibly landing on the track a block further on, which is exactly
+     * where the wagons it just left are standing, so the whole train would be
+     * assembled again and derail again. With an empty tank it simply stands
+     * there until someone rebuilds the rail and stokes it, and stoking is also
+     * what picks a fresh direction.
      */
     public void derail(Train train, String reason) {
         PoweredMinecart engine = train.engine();
-        if (config.clearFuelOnDerail && engine.isValid() && !engine.isDead()) {
+        if (engine.isValid() && !engine.isDead()) {
             try {
                 engine.setFuel(0);
                 engine.setPushX(0.0);
@@ -433,8 +433,8 @@ public final class TrainManager {
             }
         }
         if (config.debug) {
-            log("train " + train.id() + ": derailed (" + reason + ")"
-                    + (config.clearFuelOnDerail ? ", furnace emptied" : ""));
+            log("train " + train.id() + ": derailed (" + reason
+                    + "), furnace emptied");
         }
         dissolve(train, reason);
     }

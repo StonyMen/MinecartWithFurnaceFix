@@ -18,9 +18,7 @@ public final class PluginConfig {
     public final double maxLength;
     public final double maxOffset;
     public final double breakDistance;
-    public final int pathFailLimit;
     public final int scanInterval;
-    public final boolean clearFuelOnDerail;
 
     public final int lookaheadBlocks;
 
@@ -61,10 +59,6 @@ public final class PluginConfig {
         // engine. One train length plus one cart gap is the widest a slot can
         // legitimately be, so anything beyond that is not drift, it is a move.
         this.breakDistance = this.maxLength + this.spacing;
-
-        this.pathFailLimit = Math.max(1, c.getInt("train.path-fail-limit", 100));
-
-        this.clearFuelOnDerail = c.getBoolean("train.clear-fuel-on-derail", true);
 
         this.scanInterval = Math.max(1, c.getInt("train.scan-interval", 10));
 

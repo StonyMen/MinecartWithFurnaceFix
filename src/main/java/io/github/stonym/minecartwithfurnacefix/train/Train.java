@@ -69,9 +69,6 @@ public final class Train {
     private String teamName;
     private boolean dissolved;
 
-    /** Consecutive ticks the rail could not be resolved from the engine. */
-    private int pathFailStreak;
-
     /**
      * Which way along the cached path the furnace is pushing: +1 with
      * increasing {@code s}, -1 against it, 0 until it has been read once.
@@ -258,18 +255,6 @@ public final class Train {
 
     public boolean dissolved() {
         return dissolved;
-    }
-
-    public int pathFailStreak() {
-        return pathFailStreak;
-    }
-
-    public int bumpPathFailStreak() {
-        return ++pathFailStreak;
-    }
-
-    public void resetPathFailStreak() {
-        pathFailStreak = 0;
     }
 
     public int stallTicks() {

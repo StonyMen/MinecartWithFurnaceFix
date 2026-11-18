@@ -196,23 +196,18 @@ public final class TrainMover {
             Rebuild rebuilt = rebuild(world, engine, engineLocation.toVector(),
                     engineLocation.getBlock(), heading);
             if (rebuilt == null) {
+                // The engine is not standing on a rail any more: every heading
+                // the walker can try — the remembered one, the furnace push,
+                // and all four axes — comes up empty. Without a path there is
+                // no way to place a single cart, so this consist can never move
+                // again, and every cart in it is pinned (max speed zero, no
+                // physics) so the player cannot push it free either. Hand the
+                // whole thing back to vanilla at once, with an empty furnace so
+                // the engine does not drive itself off wherever it landed.
                 pathFailures++;
-                // Do not let speed pile up while the track is unresolvable.
-                train.speed(speed * 0.5);
-                if (config.debug) {
-                    manager.log("train " + train.id() + ": no rail at "
-                            + engineLocation.getBlockX() + "," + engineLocation.getBlockY()
-                            + "," + engineLocation.getBlockZ());
-                }
-                // A train whose engine sits off the rails can never be placed
-                // again. Holding it would leave every wagon frozen forever, so
-                // let go after a grace period instead.
-                if (train.bumpPathFailStreak() >= config.pathFailLimit) {
-                    manager.dissolve(train, "no rail under the engine");
-                }
+                manager.derail(train, "no rail under the engine");
                 return;
             }
-            train.resetPathFailStreak();
             rebuilt = keepDirection(train, before, beforeS, rebuilt);
             forward = rebuilt.forward();
             backward = rebuilt.backward();

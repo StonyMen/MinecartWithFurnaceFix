@@ -40,6 +40,9 @@ public final class TrainMover {
     /** Keep this much track in hand so a slot never lands exactly on the end. */
     private static final double EDGE_MARGIN = 0.05;
 
+    /** How often a train stopped at a wall or the end of the line looks again. */
+    private static final int STALL_RETRY_TICKS = 10;
+
     /** What a vanilla minecart uses. Restored whenever a cart leaves a train. */
     private static final double VANILLA_MAX_SPEED = 0.4;
 
@@ -124,12 +127,31 @@ public final class TrainMover {
         RailPath backward = train.backward();
         double s = train.s();
 
-        boolean canExtend = forward == null || forward.isEmpty()
-                || forward.length() >= maxOffset + EDGE_MARGIN + 1.0;
+        boolean noAhead = forward == null || forward.isEmpty();
+        boolean canExtend = !noAhead
+                && forward.length() >= maxOffset + EDGE_MARGIN + 1.0;
         double backwardLength = backward == null ? 0.0 : backward.length();
-        boolean stale = forward == null || forward.isEmpty()
+
+        // Running out of track in front is not only a cache problem: it is also
+        // what a wall, the end of the line, or a rail someone removed looks
+        // like. While the train stands there, re-walking every tick would only
+        // find the same dead end, so look again every half second instead —
+        // that is enough to pick up track a player builds in front of it.
+        boolean stalled = Math.abs(speed) < config.stopSpeed;
+        int stallTicks = stalled ? train.bumpStallTicks() : train.resetStallTicks();
+        boolean frontLimit = noAhead
+                || forward.length() - maxOffset - EDGE_MARGIN - s < 0.25;
+
+        boolean stale = noAhead
                 || (canExtend && s + speed + maxOffset > forward.length() - EDGE_MARGIN)
-                || s + speed + minOffset < -backwardLength + EDGE_MARGIN;
+                || s + speed + minOffset < -backwardLength + EDGE_MARGIN
+                || (stalled && frontLimit);
+
+        if (stale && stalled && frontLimit && forward != null
+                && stallTicks % STALL_RETRY_TICKS != 0) {
+            train.speed(0.0);
+            return;
+        }
 
         if (stale) {
             Rebuild rebuilt = rebuild(world, engine, enginePos, engineLocation.getBlock(), heading);
@@ -206,14 +228,18 @@ public final class TrainMover {
             backward = RailPath.empty();
         }
 
-        // Engine.
-        Vector engineTarget = s >= 0.0 || backward.isEmpty()
-                ? forward.pointAt(Math.max(0.0, s))
-                : backward.pointAt(Math.min(backward.length(), -s));
-        Vector engineTangent = s >= 0.0 || backward.isEmpty()
-                ? forward.tangentAt(Math.max(0.0, s))
-                : backward.tangentAt(Math.min(backward.length(), -s)).multiply(-1.0);
-        place(engine, engineTarget, engineTangent);
+        // Engine. A path with nothing ahead means the engine is standing on the
+        // last rail block of the line; leave it exactly where it is instead of
+        // asking an empty path for a position.
+        if (!forward.isEmpty()) {
+            Vector engineTarget = s >= 0.0 || backward.isEmpty()
+                    ? forward.pointAt(Math.max(0.0, s))
+                    : backward.pointAt(Math.min(backward.length(), -s));
+            Vector engineTangent = s >= 0.0 || backward.isEmpty()
+                    ? forward.tangentAt(Math.max(0.0, s))
+                    : backward.tangentAt(Math.min(backward.length(), -s)).multiply(-1.0);
+            place(engine, engineTarget, engineTangent);
+        }
 
         for (Train.Member member : new ArrayList<>(train.wagons())) {
             Minecart cart = member.cart();
@@ -230,7 +256,7 @@ public final class TrainMover {
             Vector target;
             Vector tangent;
             if (along >= 0.0) {
-                if (along > forward.length() + EDGE_MARGIN) {
+                if (forward.isEmpty() || along > forward.length() + EDGE_MARGIN) {
                     // There is not enough track left in front of this cart.
                     // Leave it where it is; clamping all of them onto the end
                     // point is exactly what used to pile carts into one block.
@@ -262,7 +288,7 @@ public final class TrainMover {
         }
 
         // Keep heading aligned with the rail, not with the frozen velocity.
-        if (s >= 0.0) {
+        if (!forward.isEmpty() && s >= 0.0) {
             train.heading(forward.tangentAt(Math.min(forward.length(), s)));
         }
     }
@@ -321,7 +347,7 @@ public final class TrainMover {
         double speed = train.speed();
 
         double acceleration = 0.0;
-        if (engine.getFuel() > 0) {
+        if (engine.getFuel() > 0 && !forward.isEmpty()) {
             Vector push = new Vector(engine.getPushX(), 0.0, engine.getPushZ());
             if (push.lengthSquared() > 1.0E-8) {
                 push.normalize();
@@ -350,7 +376,7 @@ public final class TrainMover {
 
         // Slope: the tangent carries the grade, so an ascending rail costs
         // speed and a descending one adds it.
-        if (s >= 0.0 && s <= forward.length()) {
+        if (!forward.isEmpty() && s >= 0.0 && s <= forward.length()) {
             speed -= forward.tangentAt(s).getY() * config.gravity;
         }
 
@@ -480,10 +506,11 @@ public final class TrainMover {
         if (forward.isEmpty()) {
             return null;
         }
+        // Trimming can legitimately leave nothing: the engine may be standing
+        // on the very last point of the line. That is not a broken walk, it
+        // only means there is no track ahead, so keep the empty path and let
+        // the caller stand still instead of dissolving the train.
         forward = forward.trimFrom(forward.nearest(enginePos).s());
-        if (forward.isEmpty()) {
-            return null;
-        }
 
         RailPath backward = RailWalker
                 .walk(world, block, used.clone().multiply(-1.0), config.lookaheadBlocks);

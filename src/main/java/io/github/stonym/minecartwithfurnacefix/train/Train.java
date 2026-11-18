@@ -72,6 +72,9 @@ public final class Train {
     /** Consecutive ticks the rail could not be resolved from the engine. */
     private int pathFailStreak;
 
+    /** Consecutive ticks the train has been standing still. */
+    private int stallTicks;
+
     /**
      * Cached rail section, with its origin at the engine. {@code s} is how far
      * the engine has travelled from that origin. Both paths are only rebuilt
@@ -210,6 +213,19 @@ public final class Train {
 
     public void resetPathFailStreak() {
         pathFailStreak = 0;
+    }
+
+    public int stallTicks() {
+        return stallTicks;
+    }
+
+    public int bumpStallTicks() {
+        return ++stallTicks;
+    }
+
+    public int resetStallTicks() {
+        stallTicks = 0;
+        return 0;
     }
 
     public void dissolved(boolean dissolved) {

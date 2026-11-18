@@ -93,7 +93,7 @@ public final class TrainMover {
             manager.dissolve(train, "engine removed");
             return;
         }
-        train.pruneInvalid();
+        manager.dropGone(train);
         if (train.hasNoWagons()) {
             manager.dissolve(train, "no wagons left");
             return;
@@ -131,7 +131,6 @@ public final class TrainMover {
             return;
         }
 
-        Vector enginePos = engineLocation.toVector();
         Vector heading = resolveHeading(engine, engineLocation, train.heading());
         train.heading(heading);
 
@@ -192,7 +191,8 @@ public final class TrainMover {
         if (stale) {
             RailPath before = noAhead ? null : forward;
             double beforeS = s;
-            Rebuild rebuilt = rebuild(world, engine, enginePos, engineLocation.getBlock(), heading);
+            Rebuild rebuilt = rebuild(world, engine, engineLocation.toVector(),
+                    engineLocation.getBlock(), heading);
             if (rebuilt == null) {
                 pathFailures++;
                 // Do not let speed pile up while the track is unresolvable.
@@ -581,6 +581,20 @@ public final class TrainMover {
      * loaded by hand or serving as decoration, and moving the carts then would
      * fight the player.
      */
+    /**
+     * Nearest first on both sides, so slot 1 is always the closest cart.
+     */
+    private static final Comparator<Train.Member> BY_OFFSET =
+            Comparator.comparingDouble(Train.Member::offset);
+    private static final Comparator<Train.Member> BY_OFFSET_DESC = BY_OFFSET.reversed();
+
+    /**
+     * Reused between ticks. The mover runs on the server thread and one tick
+     * finishes before the next starts, so these never hold anything stale.
+     */
+    private final List<Train.Member> ahead = new ArrayList<>();
+    private final List<Train.Member> behind = new ArrayList<>();
+
     private void evenOutSpacing(Train train, double speed) {
         if (config.spacingConverge <= 0.0 || train.wagons().isEmpty()) {
             return;
@@ -589,8 +603,8 @@ public final class TrainMover {
             return;
         }
 
-        List<Train.Member> ahead = new ArrayList<>();
-        List<Train.Member> behind = new ArrayList<>();
+        ahead.clear();
+        behind.clear();
         for (Train.Member member : train.wagons()) {
             if (member.offset() > 0.0) {
                 ahead.add(member);
@@ -598,11 +612,8 @@ public final class TrainMover {
                 behind.add(member);
             }
         }
-        // Nearest first on both sides, so slot 1 is always the closest cart.
-        Comparator<Train.Member> byOffset =
-                Comparator.comparingDouble((Train.Member member) -> member.offset());
-        ahead.sort(byOffset);
-        behind.sort(byOffset.reversed());
+        ahead.sort(BY_OFFSET);
+        behind.sort(BY_OFFSET_DESC);
 
         pull(ahead, 1.0);
         pull(behind, -1.0);

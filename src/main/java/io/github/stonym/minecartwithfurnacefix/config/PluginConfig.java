@@ -39,7 +39,7 @@ public final class PluginConfig {
 
         // A minecart is 0.98 wide, so anything below 1.0 makes the two carts
         // permanently overlap and fight each other.
-        this.spacing = Math.max(1.0, c.getDouble("train.spacing", 1.05));
+        this.spacing = Math.max(1.0, c.getDouble("train.spacing", 1.5));
 
         // How far a cart may slide along the rail per tick while the gaps are
         // being equalised. 0 disables the whole thing.
@@ -80,13 +80,19 @@ public final class PluginConfig {
         this.friction = Math.max(0.5, Math.min(1.0,
                 c.getDouble("physics.friction", 0.997)));
 
-        // Only ever felt while coasting. A lit engine is pinned to
-        // cruise-speed, so no amount of grade can hold it back or drag it
-        // downhill.
-        this.gravity = Math.max(0.0, c.getDouble("physics.gravity", 0.004));
+        // Vanilla changes a minecart's speed by 0.75 blocks/s for every block
+        // of height it gains or loses: at cruise speed (0.2 blocks/tick) that
+        // works out to about 0.0075 blocks/tick^2. Only ever felt while
+        // coasting — a lit engine is pinned to cruise-speed, so no grade can
+        // hold it back or drag it downhill.
+        this.gravity = Math.max(0.0, c.getDouble("physics.gravity", 0.0075));
+
+        // Vanilla has no such term: the whole of a cart's deceleration is the
+        // 0.997 friction above. Kept as a knob because a consist that coasts
+        // for 60 blocks is not for everyone, but off by default.
         this.rollingResistance = Math.max(0.0,
-                c.getDouble("physics.rolling-resistance", 0.001));
-        this.stopSpeed = Math.max(0.0, c.getDouble("physics.stop-speed", 0.002));
+                c.getDouble("physics.rolling-resistance", 0.0));
+        this.stopSpeed = Math.max(0.0, c.getDouble("physics.stop-speed", 0.001));
 
         this.debug = c.getBoolean("debug", false);
     }

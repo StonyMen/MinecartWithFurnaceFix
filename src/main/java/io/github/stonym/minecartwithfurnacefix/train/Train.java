@@ -228,11 +228,6 @@ public final class Train {
         return engine.isValid() && !engine.isDead();
     }
 
-    /** Drops wagons that no longer exist in this world. */
-    public void pruneInvalid() {
-        wagons.removeIf(m -> !m.cart().isValid() || m.cart().isDead());
-    }
-
     public void dissolveWagons() {
         wagons.clear();
     }

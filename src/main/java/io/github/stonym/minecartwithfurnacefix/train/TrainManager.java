@@ -4,6 +4,7 @@ import io.github.stonym.minecartwithfurnacefix.config.PluginConfig;
 import io.github.stonym.minecartwithfurnacefix.rail.RailPath;
 import io.github.stonym.minecartwithfurnacefix.rail.RailWalker;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -113,6 +114,10 @@ public final class TrainManager {
     /**
      * Slow sweep: adopts carts that appeared next to an existing train but
      * never moved (a cart placed by a player does not fire a move event).
+     *
+     * The rail snapshot is only taken when there is actually a stray cart in
+     * range. Walking the track is the expensive part of this sweep and most of
+     * the time there is nothing to look at, so the cheap test comes first.
      */
     public void maintain() {
         if (!config.enabled || trains.isEmpty()) {
@@ -122,13 +127,30 @@ public final class TrainManager {
             if (train.size() >= config.maxMembers) {
                 continue;
             }
-            Track track = Track.of(train.engine(), config.lookaheadBlocks);
+            Location centre = train.engineLocation();
+            if (centre.getWorld() == null) {
+                continue;
+            }
+            Collection<Entity> nearby = centre.getWorld().getNearbyEntities(
+                    centre, config.maxLength, 3.0, config.maxLength);
+
+            boolean stray = false;
+            for (Entity entity : nearby) {
+                if (entity instanceof Minecart cart && !(cart instanceof PoweredMinecart)
+                        && !byMember.containsKey(cart.getUniqueId())) {
+                    stray = true;
+                    break;
+                }
+            }
+            if (!stray) {
+                continue;
+            }
+
+            Track track = Track.of(train.engine(), walkBlocks());
             if (track == null) {
                 continue;
             }
-            Location centre = train.engineLocation();
-            for (Entity entity : centre.getWorld().getNearbyEntities(
-                    centre, config.maxLength, 3.0, config.maxLength)) {
+            for (Entity entity : nearby) {
                 if (train.size() >= config.maxMembers) {
                     break;
                 }
@@ -160,6 +182,17 @@ public final class TrainManager {
                 }
             }
         }
+    }
+
+    /**
+     * How much track an assembly needs to see.
+     *
+     * Locating a cart only ever needs {@code max-length} blocks of rail — a
+     * candidate further along the track than that is rejected anyway — so
+     * there is no reason to walk the full {@code lookahead-blocks} for it.
+     */
+    private int walkBlocks() {
+        return (int) Math.ceil(config.maxLength) + 2;
     }
 
     // ------------------------------------------------------------------
@@ -233,7 +266,7 @@ public final class TrainManager {
     }
 
     private void assemble(PoweredMinecart engine) {
-        Track track = Track.of(engine, config.lookaheadBlocks);
+        Track track = Track.of(engine, walkBlocks());
         if (track == null) {
             return;
         }
@@ -313,7 +346,7 @@ public final class TrainManager {
         if (train.size() >= config.maxMembers) {
             return;
         }
-        Track track = Track.of(train.engine(), config.lookaheadBlocks);
+        Track track = Track.of(train.engine(), walkBlocks());
         if (track == null) {
             return;
         }
@@ -352,6 +385,25 @@ public final class TrainManager {
         }
         if (train.hasNoWagons()) {
             dissolve(train, "no wagons left");
+        }
+    }
+
+    /**
+     * Drops wagons that no longer exist.
+     *
+     * Removing them through {@link #release} instead of deleting them from the
+     * member list keeps the id index in step; a dead cart left behind in
+     * {@code byMember} would hold a UUID for as long as the mapping lives.
+     */
+    void dropGone(Train train) {
+        for (int index = train.wagons().size() - 1; index >= 0; index--) {
+            Minecart cart = train.wagons().get(index).cart();
+            if (!cart.isValid() || cart.isDead()) {
+                release(train, cart, "cart gone");
+                if (train.dissolved()) {
+                    return;
+                }
+            }
         }
     }
 

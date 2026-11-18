@@ -6,13 +6,10 @@ import io.github.stonym.minecartwithfurnacefix.train.TrainManager;
 import org.bukkit.scheduler.BukkitTask;
 
 /**
- * Owns the single per-tick task.
+ * Owns the single per-tick task: it walks the short list of known trains.
  *
- * There is exactly one task for the whole plugin: it walks the small list of
- * known trains. Nothing is driven from per-entity events, which is what keeps
- * the cost flat on a server with thousands of parked carts, and nothing sweeps
- * the world on a timer either — a train is created by a stoke and lives until
- * it derails or runs out of fuel.
+ * Nothing is driven by per-entity events and nothing sweeps the world on a timer,
+ * which keeps the cost flat on a server with thousands of parked carts.
  */
 public final class PluginManager {
 
@@ -44,8 +41,8 @@ public final class PluginManager {
         if (!config.enabled) {
             return;
         }
-        // A repeating task that throws is cancelled by the scheduler, which
-        // would take the whole plugin down silently. Never let that happen.
+        // A throwing repeating task is cancelled by the scheduler, silently taking
+        // the whole plugin down.
         try {
             trainManager.tickAll();
         } catch (RuntimeException e) {

@@ -10,26 +10,16 @@ import org.bukkit.entity.minecart.PoweredMinecart;
 import org.bukkit.util.Vector;
 
 /**
- * One locomotive plus the carts it drags.
+ * One locomotive plus the carts it drags: a single signed speed, and a fixed
+ * arc-length offset per cart. Position is derived from those two numbers, never
+ * from contact between carts.
  *
- * This is the TrainCarts model, reduced to the part that matters here: the
- * whole train has a single signed speed, and every member has a fixed
- * arc-length offset from the engine. Position is derived from those two
- * numbers, never from contact between carts.
- *
- * The engine is still a vanilla furnace minecart. Fuel, ignition and the push
- * vector keep running in vanilla; this class only reads them.
+ * The engine is still a vanilla furnace minecart; this class only reads its
+ * fuel, ignition and push.
  */
 public final class Train {
 
-    /**
-     * A wagon and its signed arc-length offset from the engine.
-     *
-     * The offset is mutable on purpose: it starts as wherever the cart was
-     * standing when the train formed, then slides towards an even spacing once
-     * the train rolls. Mutating it is how the gaps equalise without teleporting
-     * anything.
-     */
+    /** A wagon and its signed arc-length offset from the engine. */
     public static final class Member {
 
         private final Minecart cart;
@@ -48,6 +38,7 @@ public final class Train {
             return offset;
         }
 
+        /** Mutable: spacing converge slides it towards an even gap. */
         public void offset(double offset) {
             this.offset = offset;
         }
@@ -60,51 +51,32 @@ public final class Train {
     /** Last known direction of travel, in world space. Null until resolved. */
     private Vector heading;
 
-    /**
-     * Signed speed of the whole train, in blocks per tick. Positive means the
-     * train travels along {@link #heading}; negative means it backs up.
-     */
+    /** Signed speed of the whole train, in blocks per tick. */
     private double speed;
 
     private String teamName;
     private boolean dissolved;
 
     /**
-     * Which way along the cached path the furnace is pushing: +1 with
-     * increasing {@code s}, -1 against it, 0 until it has been read once.
+     * Which way along the path the furnace pushes: +1 with increasing {@code s},
+     * -1 against it, 0 until it has been read once.
      *
-     * Vanilla latches this between events: rolling, being pushed by hand,
-     * being blocked by a wall or jumping the rail never changes it, but a
-     * stoke does, because every stoke re-writes the push from the player's
-     * position. Re-deriving it from the push every tick was the bug that
-     * turned trains around mid-bend: the push is a fixed world vector, the
-     * rail turns 90 degrees under it, and the sign of the dot product flips as
-     * soon as the angle passes a right angle.
+     * Latched because only a stoke may change it. Re-deriving it from the push
+     * every tick is what turned trains around mid-bend.
      */
     private int pushSign;
 
     /**
-     * A stoke the player just performed, as a horizontal unit vector pointing
-     * from the player towards the engine. Null when nothing is pending.
+     * The stoke the player just performed, as a unit vector pointing from the
+     * player towards the engine. Null when nothing is pending.
      *
-     * Vanilla shoves a furnace minecart on every stoke: the push vector is
-     * written from where the player is standing, so stoking from in front of
-     * the cart drives it back the other way. That happens while fuel is still
-     * burning too, which is why a stoke is a direction change and not just a
-     * refuel — hold coal and right-click repeatedly and the cart turns over
-     * each time.
-     *
-     * The vector is read from the world instead of from
-     * {@code engine.getPushX()} because vanilla may keep the old push when the
-     * fuel tank is already burning, and because the interact event fires
-     * before vanilla writes anything at all.
+     * Read from the world rather than from {@code engine.getPushX()}: the interact
+     * event fires before vanilla writes anything, and vanilla may keep the old
+     * push while the tank is already burning.
      */
     private Vector reignite;
 
-    /**
-     * Records a stoke. The mover reads it on the next tick and clears it, so a
-     * single right-click can never be applied twice.
-     */
+    /** Records a stoke; the mover consumes it on the next tick, so it applies once. */
     public void reignite(Vector playerToEngine) {
         if (playerToEngine == null) {
             return;
@@ -133,11 +105,7 @@ public final class Train {
         return ++age;
     }
 
-    /**
-     * Cached rail section, with its origin at the engine. {@code s} is how far
-     * the engine has travelled from that origin. Both paths are only rebuilt
-     * when the train reaches the end of the cached section.
-     */
+    /** Cached rail section, origin at the engine; {@code s} is how far it has gone. */
     private RailPath forward;
     private RailPath backward;
     private double s;
@@ -289,7 +257,7 @@ public final class Train {
         this.dissolved = dissolved;
     }
 
-    /** Largest forward offset; how much track the train needs ahead of the engine. */
+    /** Largest forward offset: how much track the train needs ahead of the engine. */
     public double maxOffset() {
         double max = 0.0;
         for (Member member : wagons) {
@@ -298,7 +266,7 @@ public final class Train {
         return max;
     }
 
-    /** Most negative offset; how much track the train needs behind the engine. */
+    /** Most negative offset: how much track the train needs behind the engine. */
     public double minOffset() {
         double min = 0.0;
         for (Member member : wagons) {

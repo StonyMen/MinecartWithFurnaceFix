@@ -17,11 +17,10 @@ import org.bukkit.event.vehicle.VehicleDestroyEvent;
 import org.bukkit.inventory.ItemStack;
 
 /**
- * Teardown hooks, plus the one event that builds a train: a player putting coal
- * in a furnace.
+ * Teardown hooks, plus the one event that builds a train: coal into a furnace.
  *
- * These only decide <em>membership</em>. Positioning happens once per tick in
- * the mover, never from inside an event.
+ * These only decide membership; positioning happens in the mover, never inside an
+ * event.
  */
 public final class TrainListener implements Listener {
 
@@ -32,27 +31,16 @@ public final class TrainListener implements Listener {
     }
 
     /**
-     * Stoking the furnace.
+     * Stoking the furnace — the only way a train is assembled.
      *
-     * This is the only way a train is assembled, so it is also the only place
-     * that has to know what "these carts belong together" means: the ones
-     * standing on the same rail around the engine, read once, right now. There
-     * is no background scan, no move event and no timer to get out of step
-     * with what the player just did.
+     * A furnace minecart that is not on a rail is refused: it could never couple
+     * to anything. Cancelled at HIGHEST so vanilla never adds the fuel or the
+     * shove.
      *
-     * A furnace minecart that is not on a rail is refused: it could never be
-     * coupled to anything, and the train only exists while it is running on
-     * track. The event is cancelled at HIGHEST so vanilla never gets to add
-     * the fuel or the shove that comes with it.
-     *
-     * A stoke is also a shove. Vanilla stores the push as "away from the
-     * player", which means every right-click with coal turns the cart if the
-     * player is standing on the other side of it — including while the fuel is
-     * still burning. The mover cannot see that on its own: our engine is
-     * pinned in place, so vanilla's own push never moves it, and the push
-     * vector may not even be rewritten when the tank is already lit. Handing
-     * the player's position over lets a stoke change direction every time,
-     * exactly as it does in vanilla.
+     * A stoke is also a shove: vanilla points the push away from the player, so
+     * right-clicking from the far side turns the cart, even while it is still
+     * burning. Our engine never moves itself, so vanilla's push cannot be observed
+     * afterwards — hence the player's position is handed over instead.
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onStoke(PlayerInteractEntityEvent event) {

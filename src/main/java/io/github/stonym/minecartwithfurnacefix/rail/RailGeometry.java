@@ -9,11 +9,9 @@ import org.bukkit.util.Vector;
 /**
  * Geometry of a single rail block.
  *
- * Every shape is reduced to a short polyline that runs from its first edge to
- * its second edge. Straight rails need two points, curves are sampled along a
- * quarter circle of radius 0.5 whose centre sits on one of the block corners.
- * Sampling instead of solving the exact arc keeps everything else simple and
- * the error stays below 0.01 blocks.
+ * Every shape becomes a short polyline from its first edge to its second.
+ * Curves are sampled along a quarter circle of radius 0.5 instead of solved
+ * exactly; the error stays below 0.01 blocks and everything else stays simple.
  */
 public final class RailGeometry {
 
@@ -99,11 +97,7 @@ public final class RailGeometry {
         };
     }
 
-    /**
-     * Polyline for one rail block, ordered so that it starts on {@code from}
-     * and ends on {@code to}. Callers pass the two edges they actually want;
-     * the canonical ordering is reversed when needed.
-     */
+    /** Polyline for one block, ordered from {@code from} to {@code to}. */
     public static List<Vector> points(int x, int y, int z, Rail.Shape shape, Edge from, Edge to) {
         List<Vector> pts;
         if (isCurve(shape)) {

@@ -24,14 +24,11 @@ import org.bukkit.scoreboard.Team;
 import org.bukkit.util.Vector;
 
 /**
- * Owns every train: who belongs to which one, and the teams that stop the
- * members from colliding with each other.
+ * Owns every train: which carts belong to which, and the collision teams that
+ * keep the members from shoving each other.
  *
- * A train is created by stoking the furnace and is assembled by looking along
- * the rail from that engine, never by watching two carts bump into each other
- * or by scanning the world on a timer. That is the whole point of the rewrite:
- * contact is no longer part of the model, and neither is a background sweep
- * that the player cannot see or predict.
+ * A train is only ever born from a stoke, never from a timer or from two carts
+ * bumping into each other.
  */
 public final class TrainManager {
 
@@ -86,28 +83,19 @@ public final class TrainManager {
     // ------------------------------------------------------------------
 
     /**
-     * A player put coal in the furnace. This is the only way a train is born.
+     * A player put coal in the furnace — the only way a train is born.
      *
-     * Stoking is the moment the player is looking at these carts and expecting
-     * them to move together, so it is also the moment to look around the
-     * engine: a brand new consist is assembled, an existing one picks up the
-     * carts that were standing beside it. Nothing else forms a train — a cart
-     * that starts rolling on its own, or one that was placed while the train
-     * was elsewhere, is simply not part of it until the player stokes again.
-     *
-     * The stoke is passed on as a direction, exactly as vanilla does it: the
-     * push is "away from the player", so stoking from the other side of the
-     * cart sends the train back the way it came.
+     * A new consist is assembled, an existing one picks up the carts standing
+     * beside it, and the stoke is passed on as a direction: the push points away
+     * from the player, so stoking from the far side reverses the train.
      */
     public void stoke(PoweredMinecart engine, Location playerLocation) {
         if (!config.enabled || !engine.isValid() || engine.isDead()) {
             return;
         }
-        // Which way the push goes is known here, before vanilla writes it into
-        // the cart, and it has to be known here: it decides which half of the
-        // rail is "ahead". Walking the track off the old push and then letting
-        // the first tick walk it off the new one makes the two disagree, and
-        // every cart's offset then means the opposite side of the furnace.
+        // Read the push here, before vanilla writes it into the cart: it decides
+        // which half of the rail is "ahead", and the first tick has to walk the
+        // same way round.
         Vector push = pushFrom(engine, playerLocation);
         Train train = byMember.get(engine.getUniqueId());
         if (train == null || train.dissolved()) {
@@ -152,22 +140,14 @@ public final class TrainManager {
             return;
         }
 
-        // Nearest first, on both sides of the engine, and at the offsets the
-        // carts are actually standing on.
-        //
-        // Nothing is snapped onto a slot here. Pushing a cart to "the next
-        // multiple of spacing" is a move the player sees the instant they put
-        // coal in the furnace: a consist that was standing still suddenly
-        // re-orders and spreads out. Even gaps are the rolling train's job
-        // (spacing converge), which slides them apart a hundredth of a block
-        // at a time instead of a jump.
+        // Nearest first, at the offsets the carts actually stand on. Nothing is
+        // snapped onto a slot: re-ordering the consist the instant the player
+        // stokes is visible, and equal gaps are the rolling train's job.
         found.sort(Comparator.comparingDouble(candidate -> Math.abs(candidate.offset())));
 
         Train train = new Train(nextId++, engine);
-        // The direction is part of the assembly, not something the first tick
-        // works out again from the furnace push: the mover prefers a known
-        // heading over that push, so recording it here is what keeps the two
-        // walks pointing the same way.
+        // Recorded so the mover's first walk follows the same direction as the
+        // assembly instead of re-deriving one from the push.
         train.heading(heading);
         for (Candidate candidate : found) {
             if (train.size() >= config.maxMembers) {
@@ -192,22 +172,13 @@ public final class TrainManager {
         }
     }
 
-    /**
-     * Adds the carts that were left standing beside a train that already
-     * exists.
-     *
-     * Stoking again is how a player says "this one too". Carts are taken
-     * nearest-first, so a train that is nearly full fills its closest slots
-     * instead of whatever the entity list happened to return first.
-     */
+    /** Picks up the carts standing beside a train that already exists. */
     private void regroup(Train train) {
         if (train.size() >= config.maxMembers) {
             return;
         }
-        // The train's own heading, so a cart added now gets its offset in the
-        // same frame the mover is placing carts in. Walking off the furnace
-        // push here would flip every offset the moment the player stoked from
-        // the other side.
+        // The train's own heading, so an offset added now is in the same frame the
+        // mover places carts in.
         Track track = Track.of(train.engine(), walkBlocks(), train.heading());
         if (track == null) {
             return;
@@ -233,16 +204,11 @@ public final class TrainManager {
     }
 
     /**
-     * Whether a cart at this offset would land on top of one that is already
-     * coupled.
+     * Whether a cart at this offset would overlap one that is already coupled.
      *
-     * This is deliberately <em>not</em> the spacing rule. Carts parked bumper
-     * to bumper are how a train is left standing, and rejecting those is what
-     * made stoking a furnace ignore the cart the player had just pushed
-     * against it: a minecart is 0.98 wide, so two of them touch at roughly one
-     * block, while {@code spacing} is 1.5. Only a real overlap — two carts in
-     * the same place — is refused; the spacing converge pulls the rest apart
-     * once the train rolls.
+     * Not the spacing rule: carts parked bumper to bumper sit about 1.0 apart
+     * while {@code spacing} is 1.5, and rejecting those is what made stoking
+     * ignore the cart the player had just pushed against the engine.
      */
     private static boolean crowded(Train train, double offset) {
         for (Train.Member member : train.wagons()) {
@@ -280,13 +246,7 @@ public final class TrainManager {
         return found;
     }
 
-    /**
-     * How much track an assembly needs to see.
-     *
-     * Locating a cart only ever needs {@code max-length} blocks of rail — a
-     * candidate further along the track than that is rejected anyway — so
-     * there is no reason to walk the full {@code lookahead-blocks} for it.
-     */
+    /** Locating a cart needs at most max-length of rail; the rest is wasted walking. */
     private int walkBlocks() {
         return (int) Math.ceil(config.maxLength) + 2;
     }
@@ -311,13 +271,7 @@ public final class TrainManager {
         }
     }
 
-    /**
-     * Drops wagons that no longer exist.
-     *
-     * Removing them through {@link #release} instead of deleting them from the
-     * member list keeps the id index in step; a dead cart left behind in
-     * {@code byMember} would hold a UUID for as long as the mapping lives.
-     */
+    /** Drops wagons that no longer exist, through {@link #release} to keep the index in step. */
     void dropGone(Train train) {
         for (int index = train.wagons().size() - 1; index >= 0; index--) {
             Minecart cart = train.wagons().get(index).cart();
@@ -330,12 +284,7 @@ public final class TrainManager {
         }
     }
 
-    /**
-     * Breaks a train up because the line under or in front of it is gone.
-     *
-     * Dissolving is the whole point: it unfreezes every cart, so the player can
-     * push them again instead of finding a consist welded to a dead end.
-     */
+    /** Breaks a train up because the line under or in front of it is gone. */
     public void derail(Train train, String reason) {
         if (config.debug) {
             log("train " + train.id() + " derailed: " + reason);
@@ -350,13 +299,9 @@ public final class TrainManager {
     /**
      * Drops a train and hands every cart back to vanilla.
      *
-     * The furnace is emptied on the way out. This is the plugin's one special
-     * case, and it is not about speed — it is about what the engine would do
-     * next. A minecart that still has fuel drives itself along, and for a
-     * consist that just came apart that means the engine wandering off on its
-     * own, burning, while the wagons it was pulling stay behind. With an empty
-     * tank it stands where the train died until someone rebuilds the line and
-     * stokes it, and a stoke is also what picks a fresh direction.
+     * The furnace is emptied on the way out, except on shutdown. This is the
+     * plugin's one special case: an engine that still has fuel drives itself off
+     * on its own while the wagons it was pulling stay behind.
      */
     private void dissolve(Train train, String reason, boolean emptyTank) {
         if (!trains.remove(train)) {
@@ -366,8 +311,7 @@ public final class TrainManager {
         if (emptyTank) {
             emptyFurnace(train);
         }
-        // Every cart must be handed back to vanilla before the records go, or
-        // it keeps the frozen state the mover gave it and stands there forever.
+        // Unfreeze before the records go, or the carts keep the frozen state.
         for (Train.Member member : train.wagons()) {
             mover.unfreeze(member.cart());
         }
@@ -385,13 +329,7 @@ public final class TrainManager {
         }
     }
 
-    /**
-     * Takes the coal out of the engine and stops it pushing.
-     *
-     * The push is cleared with the fuel for the same reason: both are what
-     * make a furnace minecart drive itself, and a train that has just been
-     * taken apart must not leave one behind under its own power.
-     */
+    /** Takes the coal out of the engine and stops it pushing. */
     private void emptyFurnace(Train train) {
         PoweredMinecart engine = train.engine();
         if (!engine.isValid() || engine.isDead()) {
@@ -420,8 +358,8 @@ public final class TrainManager {
 
     public void shutdown() {
         for (Train train : new ArrayList<>(trains)) {
-            // A shutdown is not a derailment: the world is being saved and the
-            // engine keeps the coal it has for the next start.
+            // Not a derailment: the world is being saved, so the engine keeps its
+            // coal for the next start.
             dissolve(train, "plugin disabled", false);
         }
         trains.clear();
@@ -438,10 +376,9 @@ public final class TrainManager {
     // ------------------------------------------------------------------
     // Collision teams
     //
-    // Carts inside one train must not shove each other. Vanilla resolves
-    // contact by averaging velocities, which is exactly what used to tear a
-    // train apart on a curve. A team with COLLISION_RULE = NEVER removes the
-    // contact entirely instead of trying to out-compute it.
+    // Vanilla resolves contact by averaging velocities, which is what used to
+    // tear a train apart on a curve. COLLISION_RULE = NEVER removes the contact
+    // instead of trying to out-compute it.
     // ------------------------------------------------------------------
 
     private Scoreboard scoreboard() {
@@ -541,10 +478,7 @@ public final class TrainManager {
         return dissolves;
     }
 
-    /**
-     * A snapshot of the rail around one engine: the track ahead, the track
-     * behind, and where the engine sits on both.
-     */
+    /** The rail around one engine, with the engine's arc length on both halves. */
     private record Track(RailPath forward, double sForward, RailPath backward, double sBackward) {
 
         static Track of(PoweredMinecart engine, int lookahead, Vector hint) {
@@ -558,18 +492,16 @@ public final class TrainManager {
                     : TrainMover.resolveHeading(engine, location, null);
             Block block = location.getBlock();
             Vector position = location.toVector();
-            // The cart's own position decides which end of the first rail block
-            // it is heading for. Without it the walk falls back to comparing
-            // edge directions, which ties in the middle of a curve and gives up
-            // — that is how a cart standing on the same rail as the engine used
-            // to be invisible to the assembly.
+            // The cart's position decides which end of the first rail block it is
+            // heading for; comparing edge directions instead ties in the middle of
+            // a curve and gives up.
             RailPath forward = RailWalker.walk(world, block, position, heading, lookahead);
             RailPath backward = RailWalker
                     .walk(world, block, position, heading.clone().multiply(-1.0), lookahead)
                     .reversed();
-            // Either half alone is enough to couple carts against. A train
-            // parked on the last block of a line has no track in front of it,
-            // but that says nothing about the wagons standing behind it.
+            // Either half alone is enough to couple carts against: a train parked on
+            // the last block of a line has nothing ahead of it but may still have
+            // wagons behind.
             if (forward.isEmpty() && backward.isEmpty()) {
                 return null;
             }

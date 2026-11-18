@@ -3,10 +3,8 @@ package io.github.stonym.minecartwithfurnacefix.rail;
 import org.bukkit.util.Vector;
 
 /**
- * The four horizontal sides of a rail block.
- *
- * A rail shape connects exactly two of them, so every piece of track can be
- * described as "enter through this edge, leave through that one".
+ * The four horizontal sides of a rail block. A shape connects exactly two of
+ * them, so every piece of track is "enter here, leave there".
  */
 public enum Edge {
 

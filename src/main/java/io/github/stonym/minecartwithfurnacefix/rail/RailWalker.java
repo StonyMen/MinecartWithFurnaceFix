@@ -14,40 +14,24 @@ import org.bukkit.util.Vector;
 /**
  * Walks the rail network block by block and turns it into a {@link RailPath}.
  *
- * The walk starts on the block the cart currently occupies and follows the
- * rails until the track ends, the next block is not a rail, or the neighbour
- * does not meet this block at the same height.
- *
- * Two things decide whether a neighbour belongs to the same line of track:
- *
- * <ul>
- *   <li>it must connect on the edge we are leaving through, which is what keeps
- *       two parallel tracks apart;</li>
- *   <li>the surface height on that shared edge must be identical, which is what
- *       tells a level neighbour apart from one that climbs or drops a block.</li>
- * </ul>
- *
- * The height rule matters most downhill. A rail that descends lives in the
- * <em>lower</em> block, so stepping onto it means y-1 while leaving it means
- * y unchanged. Guessing the step from the shape alone gets one of those two
- * wrong and loses the whole track from that point on, which looks exactly like
- * a train refusing to move.
+ * A neighbour joins the line only if it connects on the edge we are leaving
+ * through (which keeps parallel tracks apart) and its surface height on that
+ * shared edge is identical (which tells a level neighbour from one that climbs or
+ * drops). The height rule matters downhill: a descending rail lives in the lower
+ * block, so entering it means y-1 while leaving it means y unchanged.
  */
 public final class RailWalker {
 
-    /** Limit on the vertical step between two connected rail blocks. */
+    /** Vertical steps tried between two connected rail blocks. */
     private static final int[] STEP_DY = {0, 1, -1};
 
-    /** Slack when comparing two edge heights; rails are placed on 1/16 units. */
+    /** Slack when comparing edge heights; rails are placed on 1/16 units. */
     private static final double HEIGHT_EPSILON = 1.0E-4;
 
     /**
-     * Smallest score that still counts as "this end lies ahead of the cart".
-     *
-     * A cart in the middle of a block, heading along its rail, scores about
-     * 0.35-0.5 for the end it is heading towards. A rail running across the
-     * heading scores ~0 for both ends, which is the only case where the walk
-     * has nothing to go on.
+     * Smallest score that still counts as "this end lies ahead of the cart". A
+     * rail running across the heading scores ~0 for both ends, which is the only
+     * case where the walk has nothing to go on.
      */
     private static final double FIRST_EXIT_MIN_SCORE = 0.05;
 
@@ -71,9 +55,7 @@ public final class RailWalker {
     }
 
     /**
-     * @param startX    block the cart is in
-     * @param startPos  where the cart actually is inside that block, or null
-     * @param heading   horizontal unit vector of travel
+     * @param startPos where the cart sits inside its block, or null
      * @param maxBlocks safety limit on how many blocks to follow
      */
     public static RailPath walk(BlockSource source, int startX, int startY, int startZ,
@@ -103,12 +85,7 @@ public final class RailWalker {
 
             Edge exit = entry == null ? null : RailGeometry.other(shape, entry);
             if (exit == null) {
-                // First block: the cart's own spot inside the block says which
-                // end of the rail is ahead of it. Picking by heading alone
-                // cannot work here — halfway through a curve the heading is
-                // 45 degrees away from both edges, and the old code then gave
-                // up and guessed from the furnace push, which on a curve can
-                // point straight back through the edge the cart came in by.
+                // First block: the cart's spot inside it says which end is ahead.
                 exit = firstExit(x, y, z, shape, startPos, flat);
                 if (exit == null) {
                     break;
@@ -121,9 +98,8 @@ public final class RailWalker {
             }
             points.addAll(RailGeometry.points(x, y, z, shape, from, exit));
 
-            // Where the rail surface sits on the edge we are leaving through.
-            // The neighbour has to present the same height on the opposite
-            // edge, otherwise the two pieces do not actually join up.
+            // The neighbour must present the same height on the opposite edge, or
+            // the two pieces do not actually join up.
             double exitHeight = RailGeometry.edgePoint(x, y, z, shape, exit).getY();
             Edge arriving = exit.opposite();
 
@@ -159,16 +135,13 @@ public final class RailWalker {
     /**
      * Which edge of the first block the cart leaves through.
      *
-     * The rail's two ends are projected onto the heading, measured from the
-     * cart's own position, and the one that scores highest is ahead. On a curve
-     * that is the only signal that works: the heading halfway through a 90
-     * degree bend is 45 degrees from both ends, so comparing edge directions
-     * gives a tie, and the fallback used to be the furnace push — which on a
-     * curve can easily be the cardinal the cart came in by, sending the whole
-     * path straight back the way it arrived.
+     * The rail's two ends are projected onto the heading from the cart's own
+     * position. That is the only signal that works on a curve: halfway through a
+     * 90 degree bend the heading is 45 degrees from both ends, so comparing edge
+     * directions ties.
      *
-     * @return null when the rail runs across the heading and neither end is
-     *         meaningfully ahead, i.e. the cart is not on this piece of track
+     * @return null when the rail runs across the heading, i.e. the cart is not on
+     *         this piece of track
      */
     private static Edge firstExit(int x, int y, int z, Rail.Shape shape,
             Vector startPos, Vector flat) {
@@ -192,8 +165,7 @@ public final class RailWalker {
             }
         }
 
-        // No position to go on (or the cart sits exactly between the ends):
-        // fall back to the edge the heading points out of.
+        // No position to go on, or the cart sits exactly between the ends.
         double first = edges[0].direction().dot(flat);
         double second = edges[1].direction().dot(flat);
         if (Math.abs(first - second) < 0.1) {
@@ -216,13 +188,10 @@ public final class RailWalker {
     /**
      * Whether a minecart standing here is on a rail.
      *
-     * A cart rides with its feet on the rail surface, a sixteenth of a block
-     * above the floor of the block the rail lives in, so the block it occupies
-     * is the rail itself. The block below is accepted as well — an ascending
-     * rail puts its surface halfway up its own block, and the walker starts
-     * the track from the block the cart is in — but nothing above: a cart
-     * hovering over a track is not on it, and stoking that one would only put
-     * fuel in a cart that cannot couple to anything.
+     * A cart rides with its feet on the rail surface, so the block it occupies is
+     * the rail itself. The block below counts too, for an ascending rail whose
+     * surface carries the cart into the block above. Nothing above: a cart
+     * hovering over a track cannot couple to anything.
      */
     public static boolean standsOnRail(Location location) {
         if (location == null) {
@@ -239,15 +208,11 @@ public final class RailWalker {
     }
 
     /**
-     * Whether the rail a cart standing here rides on is a powered rail that is
-     * currently switched on.
+     * Whether the rail a cart rides here is a powered rail that is switched on.
      *
-     * Same coordinates as {@link #standsOnRail}, but the order matters here: a
-     * powered rail one block down means nothing if the cart is already riding
-     * the plain rail in its own block, which is what a second line underneath
-     * looks like. So the block the cart occupies decides first, and the block
-     * below is only consulted when that one is not a rail at all — the case of
-     * an ascending rail, whose surface carries the cart into the block above.
+     * Same coordinates as {@link #standsOnRail}, but the order matters: the block
+     * the cart occupies decides first, so a powered rail on a line underneath does
+     * not boost this one.
      */
     public static boolean poweredRailUnder(Location location) {
         if (location == null) {

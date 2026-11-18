@@ -6,11 +6,8 @@ import java.util.List;
 import org.bukkit.util.Vector;
 
 /**
- * An ordered polyline with arc-length parameterisation.
- *
- * Everything the train needs is addressed by one number: how far along the
- * track. {@code s = 0} is the start of the polyline, {@code s = length()} the
- * end. Positions and tangents are interpolated from the sampled points.
+ * An ordered polyline addressed by one number: how far along the track.
+ * {@code s = 0} is the start, {@code s = length()} the end.
  */
 public final class RailPath {
 
@@ -101,11 +98,10 @@ public final class RailPath {
     }
 
     /**
-     * Returns the part of this path that starts at arc length {@code s}.
+     * The part of this path starting at arc length {@code s}.
      *
-     * The train keeps its engine at arc length 0 of both the forward and the
-     * backward path. Trimming is what makes that possible: the walker always
-     * starts at the centre of a block, but the cart can sit anywhere inside it.
+     * The walker always starts at the centre of a block, but the cart can sit
+     * anywhere inside it; trimming is what puts the engine at {@code s = 0}.
      */
     public RailPath trimFrom(double s) {
         if (points.size() < 2 || s <= 1.0E-9) {

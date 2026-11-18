@@ -43,6 +43,12 @@ public final class TrainMover {
     /** How often a train stopped at a wall or the end of the line looks again. */
     private static final int STALL_RETRY_TICKS = 10;
 
+    /**
+     * How well the push has to line up with the rail before it is trusted to
+     * say which way the train goes. Below this the last reading is kept.
+     */
+    private static final double PUSH_CLEAR = 0.25;
+
     /** What a vanilla minecart uses. Restored whenever a cart leaves a train. */
     private static final double VANILLA_MAX_SPEED = 0.4;
 
@@ -154,6 +160,8 @@ public final class TrainMover {
         }
 
         if (stale) {
+            RailPath before = noAhead ? null : forward;
+            double beforeS = s;
             Rebuild rebuilt = rebuild(world, engine, enginePos, engineLocation.getBlock(), heading);
             if (rebuilt == null) {
                 pathFailures++;
@@ -173,6 +181,7 @@ public final class TrainMover {
                 return;
             }
             train.resetPathFailStreak();
+            rebuilt = keepDirection(train, before, beforeS, rebuilt);
             forward = rebuilt.forward();
             backward = rebuilt.backward();
             s = 0.0;
@@ -199,7 +208,7 @@ public final class TrainMover {
             }
         }
 
-        speed = updateSpeed(train, engine, forward, s);
+        speed = updateSpeed(train, engine, forward, backward, s);
 
         // A wall in front of the train shortens the usable path. Clamping here
         // stops the engine from pushing the rest of the train into the wall:
@@ -339,56 +348,103 @@ public final class TrainMover {
     }
 
     /**
-     * Speed comes from the furnace, using the vanilla numbers as defaults:
-     * a push while there is fuel, friction every tick, gravity on slopes.
+     * Speed for this tick.
+     *
+     * A lit furnace drives the train at a constant {@code cruise-speed}:
+     * vanilla moves a furnace minecart at 4 blocks a second — 0.2 blocks per
+     * tick, a little slower than walking — and neither a downhill nor a
+     * powered rail changes that. Nothing here accelerates, coasts on a grade or
+     * brakes while there is fuel left, which is also why no incline can hold
+     * the train back.
+     *
+     * Without fuel the train only coasts: friction, rolling resistance and the
+     * grade, in whichever direction it happens to be rolling, up to the normal
+     * minecart limit.
      */
     private double updateSpeed(Train train, PoweredMinecart engine,
-            RailPath forward, double s) {
-        double speed = train.speed();
+            RailPath forward, RailPath backward, double s) {
+        long fuel = engine.getFuel();
 
-        double acceleration = 0.0;
-        if (engine.getFuel() > 0 && !forward.isEmpty()) {
-            Vector push = new Vector(engine.getPushX(), 0.0, engine.getPushZ());
-            if (push.lengthSquared() > 1.0E-8) {
-                push.normalize();
-                Vector tangent = forward.tangentAt(Math.max(0.0, s));
-                double dot = push.getX() * tangent.getX() + push.getZ() * tangent.getZ();
-
-                // Ignition stores one of the four cardinal directions. On a
-                // curve the rail can be 45 degrees away from it, so only flip
-                // the sign on a clear mismatch and otherwise keep going the
-                // way the train already rolls.
-                double sign = speed < -1.0E-4 ? -1.0 : 1.0;
-                if (dot > 0.25) {
-                    sign = 1.0;
-                } else if (dot < -0.25) {
-                    sign = -1.0;
+        if (fuel > 0) {
+            // Direction is latched, exactly as vanilla locks it: only a fresh
+            // ignition — fuel going from nothing to something — is allowed to
+            // pick a new one. See Train#pushSign.
+            if (train.lastFuel() <= 0 || train.pushSign() == 0) {
+                int latched = latchSign(train, engine, forward, s);
+                if (latched != train.pushSign() && config.debug) {
+                    manager.log("train " + train.id() + ": ignition direction "
+                            + latched);
                 }
-                acceleration = sign * config.acceleration;
+                train.pushSign(latched);
             }
+            train.lastFuel(fuel);
+            return train.pushSign() * config.cruiseSpeed;
         }
 
-        speed = speed * config.friction + acceleration;
-        if (acceleration == 0.0 && speed != 0.0) {
-            double resistance = Math.min(Math.abs(speed), config.rollingResistance);
-            speed -= Math.signum(speed) * resistance;
+        train.lastFuel(0);
+        return SpeedModel.coast(train.speed(), config.friction,
+                config.rollingResistance, config.gravity,
+                slopeAt(forward, backward, s), config.maxSpeed, config.stopSpeed);
+    }
+
+    /**
+     * Reads the direction off the furnace, once per ignition.
+     *
+     * The push vector is written at ignition and the cached path is walked
+     * along it, so in the normal case this is simply +1. Both fallbacks mean
+     * "keep what it was doing" rather than guessing: a push perpendicular to
+     * the rail says nothing at all about which way along it to travel, and with
+     * no earlier reading the honest answer is zero — the train stands still
+     * until the furnace gives a usable direction. Guessing there is what sends
+     * a freshly lit train off backwards.
+     *
+     * @return +1 with increasing {@code s}, -1 against it, 0 when unknown
+     */
+    private int latchSign(Train train, PoweredMinecart engine, RailPath forward, double s) {
+        Vector push = new Vector(engine.getPushX(), 0.0, engine.getPushZ());
+        if (push.lengthSquared() <= 1.0E-8) {
+            return train.pushSign();
+        }
+        push.normalize();
+
+        Vector tangent = forward.isEmpty() ? flatten(train.heading())
+                : forward.tangentAt(Math.max(0.0, s));
+        if (tangent == null) {
+            return train.pushSign();
         }
 
-        // Slope: the tangent carries the grade, so an ascending rail costs
-        // speed and a descending one adds it.
-        if (!forward.isEmpty() && s >= 0.0 && s <= forward.length()) {
-            speed -= forward.tangentAt(s).getY() * config.gravity;
+        double dot = push.getX() * tangent.getX() + push.getZ() * tangent.getZ();
+        if (dot >= PUSH_CLEAR) {
+            return 1;
         }
+        if (dot <= -PUSH_CLEAR) {
+            return -1;
+        }
+        return train.pushSign();
+    }
 
-        if (speed > config.maxSpeed) {
-            speed = config.maxSpeed;
-        } else if (speed < -config.maxSpeed) {
-            speed = -config.maxSpeed;
+    /**
+     * dY/ds of the rail under the engine, in the path's own frame.
+     *
+     * Behind the origin {@code s} is negative and the engine is standing on the
+     * backward path, whose tangent points the other way; its Y has to be
+     * negated or a train rolling back down a hill would feel no grade at all
+     * and just coast to a stop halfway down.
+     */
+    private static double slopeAt(RailPath forward, RailPath backward, double s) {
+        if (s >= 0.0) {
+            return forward == null ? 0.0 : forward.tangentAt(s).getY();
         }
-        if (Math.abs(speed) < config.stopSpeed && acceleration == 0.0) {
-            speed = 0.0;
+        return backward == null ? 0.0 : -backward.tangentAt(-s).getY();
+    }
+
+    /** Horizontal unit vector of {@code raw}, or null when it has no direction. */
+    private static Vector flatten(Vector raw) {
+        if (raw == null) {
+            return null;
         }
-        return speed;
+        Vector flat = raw.clone().setY(0.0);
+        return flat.lengthSquared() < 1.0E-6 ? null : flat.normalize();
     }
 
     /**
@@ -473,19 +529,56 @@ public final class TrainMover {
             new Vector(0.0, 0.0, -1.0)
     };
 
+    /**
+     * A rebuilt cache is meant to continue the track the train is already on.
+     * If the walk came out pointing back the way the train arrived, the engine
+     * would step a whole block backwards and then keep travelling that way —
+     * the train drives off in the opposite direction.
+     *
+     * Swapping the halves is the whole fix. The two walks are started with
+     * opposite headings and {@code firstExit} picks opposite edges for them, so
+     * one of the two halves is always the track ahead and the other the track
+     * behind; if the walker labelled them the wrong way round, exchanging them
+     * restores the labels. Nothing else has to move: an offset, the push sign
+     * and the speed all mean "along the track ahead of the engine", and after
+     * the swap that is exactly what {@code forward} is again. Flipping those
+     * too would turn the train around a second time — the mistake that made
+     * this method look like it did nothing.
+     *
+     * {@code s} is reset to zero by the caller, and both halves start at the
+     * engine, so the engine itself does not move.
+     */
+    private Rebuild keepDirection(Train train, RailPath before, double beforeS,
+            Rebuild rebuilt) {
+        if (before == null || before.isEmpty() || rebuilt.forward().isEmpty()) {
+            return rebuilt;
+        }
+        Vector was = before.tangentAt(Math.max(0.0, Math.min(before.length(), beforeS)));
+        Vector now = rebuilt.forward().tangentAt(0.0);
+        if (was.getX() * now.getX() + was.getZ() * now.getZ() >= -0.5) {
+            return rebuilt;
+        }
+        if (config.debug) {
+            manager.log("train " + train.id()
+                    + ": path rebuilt backwards, swapped the halves");
+        }
+        return new Rebuild(rebuilt.backward(), rebuilt.forward(),
+                rebuilt.heading().clone().multiply(-1.0));
+    }
+
     private Rebuild rebuild(World world, PoweredMinecart engine, Vector enginePos,
             Block block, Vector heading) {
         Vector used = heading;
-        RailPath forward = RailWalker.walk(world, block, used, config.lookaheadBlocks);
+        RailPath forward = RailWalker.walk(world, block, enginePos, used, config.lookaheadBlocks);
 
-        // A cart standing in the middle of a curve has a 45 degree tangent,
-        // which is ambiguous for the first block: both exits score the same.
-        // The furnace push is cardinal, so it can break the tie.
+        // A cart standing in the middle of a curve has a 45 degree tangent.
+        // The walker resolves that from the cart's position inside the block;
+        // if it still could not, the furnace push is the next best signal.
         if (forward.isEmpty()) {
             Vector push = new Vector(engine.getPushX(), 0.0, engine.getPushZ());
             if (push.lengthSquared() > 1.0E-6) {
                 used = snap(push);
-                forward = RailWalker.walk(world, block, used, config.lookaheadBlocks);
+                forward = RailWalker.walk(world, block, enginePos, used, config.lookaheadBlocks);
             }
         }
 
@@ -494,7 +587,8 @@ public final class TrainMover {
         // only axes that can walk at all are the rail's own axes.
         if (forward.isEmpty()) {
             for (Vector axis : AXES) {
-                RailPath attempt = RailWalker.walk(world, block, axis, config.lookaheadBlocks);
+                RailPath attempt = RailWalker
+                        .walk(world, block, enginePos, axis, config.lookaheadBlocks);
                 if (!attempt.isEmpty()) {
                     used = axis;
                     forward = attempt;
@@ -512,8 +606,8 @@ public final class TrainMover {
         // the caller stand still instead of dissolving the train.
         forward = forward.trimFrom(forward.nearest(enginePos).s());
 
-        RailPath backward = RailWalker
-                .walk(world, block, used.clone().multiply(-1.0), config.lookaheadBlocks);
+        RailPath backward = RailWalker.walk(world, block, enginePos,
+                used.clone().multiply(-1.0), config.lookaheadBlocks);
         if (!backward.isEmpty()) {
             backward = backward.trimFrom(backward.nearest(enginePos).s());
         }

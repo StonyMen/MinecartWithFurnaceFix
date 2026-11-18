@@ -24,8 +24,8 @@ public final class PluginConfig {
 
     public final int lookaheadBlocks;
 
+    public final double cruiseSpeed;
     public final double maxSpeed;
-    public final double acceleration;
     public final double friction;
     public final double gravity;
     public final double rollingResistance;
@@ -64,11 +64,23 @@ public final class PluginConfig {
         this.lookaheadBlocks = Math.max(maxMembers + 2,
                 c.getInt("path.lookahead-blocks", 48));
 
+        // The minecart speed limit: 0.4 blocks/tick, 8 blocks/s. Only ever
+        // reached while coasting downhill without fuel.
         this.maxSpeed = Math.max(1.0E-4, c.getDouble("physics.max-speed", 0.4));
-        this.acceleration = Math.max(1.0E-5, c.getDouble("physics.acceleration", 0.006));
+
+        // What a lit furnace minecart actually does in vanilla: 4 blocks a
+        // second, i.e. 0.2 blocks/tick, held constant — uphill, downhill and
+        // through powered rails alike. Never above the coasting limit.
+        this.cruiseSpeed = Math.min(this.maxSpeed, Math.max(1.0E-4,
+                c.getDouble("physics.cruise-speed", 0.2)));
+
         this.friction = Math.max(0.5, Math.min(1.0,
                 c.getDouble("physics.friction", 0.997)));
-        this.gravity = Math.max(0.0, c.getDouble("physics.gravity", 0.02));
+
+        // Only ever felt while coasting. A lit engine is pinned to
+        // cruise-speed, so no amount of grade can hold it back or drag it
+        // downhill.
+        this.gravity = Math.max(0.0, c.getDouble("physics.gravity", 0.004));
         this.rollingResistance = Math.max(0.0,
                 c.getDouble("physics.rolling-resistance", 0.001));
         this.stopSpeed = Math.max(0.0, c.getDouble("physics.stop-speed", 0.002));

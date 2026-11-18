@@ -72,6 +72,26 @@ public final class Train {
     /** Consecutive ticks the rail could not be resolved from the engine. */
     private int pathFailStreak;
 
+    /**
+     * Which way along the cached path the furnace is pushing: +1 with
+     * increasing {@code s}, -1 against it, 0 until it has been read once.
+     *
+     * Vanilla latches this: while there is fuel left, nothing changes which way
+     * a furnace minecart travels — not pushing it, not blocking it, not
+     * derailing it. Only letting the fuel burn out and stoking it again picks a
+     * new direction. Re-deriving it every tick is what made trains turn around
+     * in the middle of a bend: the push is a fixed world vector written at
+     * ignition, the rail turns 90 degrees under it, and the sign of the dot
+     * product flips as soon as the angle passes a right angle.
+     */
+    private int pushSign;
+
+    /**
+     * Fuel reading at the end of the previous tick. A rise from zero is the
+     * only event that is allowed to pick a new direction.
+     */
+    private long lastFuel = -1;
+
     /** Consecutive ticks the train has been standing still. */
     private int stallTicks;
 
@@ -226,6 +246,22 @@ public final class Train {
     public int resetStallTicks() {
         stallTicks = 0;
         return 0;
+    }
+
+    public int pushSign() {
+        return pushSign;
+    }
+
+    public void pushSign(int pushSign) {
+        this.pushSign = pushSign;
+    }
+
+    public long lastFuel() {
+        return lastFuel;
+    }
+
+    public void lastFuel(long lastFuel) {
+        this.lastFuel = lastFuel;
     }
 
     public void dissolved(boolean dissolved) {

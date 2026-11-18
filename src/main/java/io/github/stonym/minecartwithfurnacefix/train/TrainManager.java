@@ -321,6 +321,7 @@ public final class TrainManager {
         }
         byMember.remove(cart.getUniqueId());
         removeFromTeam(train, cart);
+        mover.unfreeze(cart);
         mover.countRelease();
         if (config.debug) {
             log("train " + train.id() + ": released a cart (" + reason + ")");
@@ -335,6 +336,14 @@ public final class TrainManager {
             return;
         }
         train.dissolved(true);
+
+        // Every cart must be handed back to vanilla before the records go, or
+        // it keeps the frozen state the mover gave it and stands there forever.
+        for (Train.Member member : train.wagons()) {
+            mover.unfreeze(member.cart());
+        }
+        mover.unfreeze(train.engine());
+
         byMember.remove(train.engineId());
         for (Train.Member member : train.wagons()) {
             byMember.remove(member.cart().getUniqueId());

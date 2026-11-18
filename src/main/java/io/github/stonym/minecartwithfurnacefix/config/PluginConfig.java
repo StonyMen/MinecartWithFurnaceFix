@@ -17,6 +17,8 @@ public final class PluginConfig {
     public final double maxLength;
     public final double maxOffset;
     public final double breakDistance;
+    public final double detachDistance;
+    public final int pathFailLimit;
     public final int scanInterval;
 
     public final int lookaheadBlocks;
@@ -41,6 +43,16 @@ public final class PluginConfig {
                 c.getDouble("train.max-length", 8.0));
         this.maxOffset = Math.max(0.1, c.getDouble("train.max-offset", 0.75));
         this.breakDistance = Math.max(1.0, c.getDouble("train.break-distance", 6.0));
+
+        // 0 means "follow max-length". Anything higher than the train length
+        // releases a wagon the moment it drifts out of reach of the engine.
+        double rawDetach = c.getDouble("train.detach-distance", 0.0);
+        this.detachDistance = rawDetach <= 0.0
+                ? this.maxLength
+                : Math.max(1.0, rawDetach);
+
+        this.pathFailLimit = Math.max(1, c.getInt("train.path-fail-limit", 100));
+
         this.scanInterval = Math.max(1, c.getInt("train.scan-interval", 10));
 
         this.lookaheadBlocks = Math.max(maxMembers + 2,

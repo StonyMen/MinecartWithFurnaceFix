@@ -39,6 +39,9 @@ public final class TrainMover {
     /** Keep this much track in hand so a slot never lands exactly on the end. */
     private static final double EDGE_MARGIN = 0.05;
 
+    /** What a vanilla minecart uses. Restored whenever a cart leaves a train. */
+    private static final double VANILLA_MAX_SPEED = 0.4;
+
     private final TrainManager manager;
     private PluginConfig config;
 
@@ -81,6 +84,25 @@ public final class TrainMover {
             freeze(member.cart());
         }
 
+        // Distance is the one part of membership that needs no bookkeeping: a
+        // cart that is nowhere near the engine cannot belong to it. This is
+        // what frees wagons when the engine is destroyed, teleported away, or
+        // adopted by something else while our records are still stale.
+        double detachSq = config.detachDistance * config.detachDistance;
+        for (Train.Member member : new ArrayList<>(train.wagons())) {
+            Minecart cart = member.cart();
+            if (!cart.getWorld().equals(world)) {
+                manager.release(train, cart, "different world");
+                continue;
+            }
+            if (cart.getLocation().distanceSquared(engineLocation) > detachSq) {
+                manager.release(train, cart, "too far from the engine");
+            }
+        }
+        if (train.dissolved()) {
+            return;
+        }
+
         Vector enginePos = engineLocation.toVector();
         Vector heading = resolveHeading(engine, engineLocation, train.heading());
         train.heading(heading);
@@ -113,8 +135,15 @@ public final class TrainMover {
                             + engineLocation.getBlockX() + "," + engineLocation.getBlockY()
                             + "," + engineLocation.getBlockZ());
                 }
+                // A train whose engine sits off the rails can never be placed
+                // again. Holding it would leave every wagon frozen forever, so
+                // let go after a grace period instead.
+                if (train.bumpPathFailStreak() >= config.pathFailLimit) {
+                    manager.dissolve(train, "no rail under the engine");
+                }
                 return;
             }
+            train.resetPathFailStreak();
             forward = rebuilt.forward();
             backward = rebuilt.backward();
             s = 0.0;
@@ -247,6 +276,32 @@ public final class TrainMover {
         }
         if (!cart.hasNoPhysics()) {
             cart.setNoPhysics(true);
+        }
+    }
+
+    /**
+     * Hands a cart back to vanilla.
+     *
+     * {@link #freeze} runs every tick on every member, so a cart that leaves a
+     * train keeps "cannot move" on itself until something undoes it. That was
+     * the bug: destroying the engine dissolved the records but left every wagon
+     * pinned, and they stood there as if still coupled.
+     */
+    public void unfreeze(Minecart cart) {
+        if (cart == null || !cart.isValid() || cart.isDead()) {
+            return;
+        }
+        try {
+            if (cart.getMaxSpeed() != VANILLA_MAX_SPEED) {
+                cart.setMaxSpeed(VANILLA_MAX_SPEED);
+            }
+            if (cart.hasNoPhysics()) {
+                cart.setNoPhysics(false);
+            }
+        } catch (RuntimeException e) {
+            if (config.debug) {
+                manager.log("could not hand a cart back: " + e.getMessage());
+            }
         }
     }
 

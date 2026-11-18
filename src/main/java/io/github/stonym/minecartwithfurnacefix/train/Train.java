@@ -42,6 +42,9 @@ public final class Train {
     private String teamName;
     private boolean dissolved;
 
+    /** Consecutive ticks the rail could not be resolved from the engine. */
+    private int pathFailStreak;
+
     /**
      * Cached rail section, with its origin at the engine. {@code s} is how far
      * the engine has travelled from that origin. Both paths are only rebuilt
@@ -168,6 +171,18 @@ public final class Train {
 
     public boolean dissolved() {
         return dissolved;
+    }
+
+    public int pathFailStreak() {
+        return pathFailStreak;
+    }
+
+    public int bumpPathFailStreak() {
+        return ++pathFailStreak;
+    }
+
+    public void resetPathFailStreak() {
+        pathFailStreak = 0;
     }
 
     public void dissolved(boolean dissolved) {

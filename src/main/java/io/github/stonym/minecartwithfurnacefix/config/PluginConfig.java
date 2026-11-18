@@ -18,16 +18,10 @@ public final class PluginConfig {
     public final double maxLength;
     public final double maxOffset;
     public final double breakDistance;
-    public final int scanInterval;
 
     public final int lookaheadBlocks;
 
     public final double cruiseSpeed;
-    public final double maxSpeed;
-    public final double friction;
-    public final double gravity;
-    public final double rollingResistance;
-    public final double stopSpeed;
 
     public final boolean debug;
 
@@ -60,37 +54,16 @@ public final class PluginConfig {
         // legitimately be, so anything beyond that is not drift, it is a move.
         this.breakDistance = this.maxLength + this.spacing;
 
-        this.scanInterval = Math.max(1, c.getInt("train.scan-interval", 10));
-
         this.lookaheadBlocks = Math.max(maxMembers + 2,
                 c.getInt("path.lookahead-blocks", 48));
 
-        // The minecart speed limit: 0.4 blocks/tick, 8 blocks/s. Only ever
-        // reached while coasting downhill without fuel.
-        this.maxSpeed = Math.max(1.0E-4, c.getDouble("physics.max-speed", 0.4));
-
         // What a lit furnace minecart actually does in vanilla: 4 blocks a
         // second, i.e. 0.2 blocks/tick, held constant — uphill, downhill and
-        // through powered rails alike. Never above the coasting limit.
-        this.cruiseSpeed = Math.min(this.maxSpeed, Math.max(1.0E-4,
-                c.getDouble("physics.cruise-speed", 0.2)));
-
-        this.friction = Math.max(0.5, Math.min(1.0,
-                c.getDouble("physics.friction", 0.997)));
-
-        // Vanilla changes a minecart's speed by 0.75 blocks/s for every block
-        // of height it gains or loses: at cruise speed (0.2 blocks/tick) that
-        // works out to about 0.0075 blocks/tick^2. Only ever felt while
-        // coasting — a lit engine is pinned to cruise-speed, so no grade can
-        // hold it back or drag it downhill.
-        this.gravity = Math.max(0.0, c.getDouble("physics.gravity", 0.0075));
-
-        // Vanilla has no such term: the whole of a cart's deceleration is the
-        // 0.997 friction above. Kept as a knob because a consist that coasts
-        // for 60 blocks is not for everyone, but off by default.
-        this.rollingResistance = Math.max(0.0,
-                c.getDouble("physics.rolling-resistance", 0.0));
-        this.stopSpeed = Math.max(0.0, c.getDouble("physics.stop-speed", 0.001));
+        // through powered rails alike. It is also the only speed this plugin
+        // has: a consist that runs out of fuel is dissolved, not left to
+        // coast, so there is no second regime to configure.
+        this.cruiseSpeed = Math.max(1.0E-4,
+                c.getDouble("physics.cruise-speed", 0.2));
 
         this.debug = c.getBoolean("debug", false);
     }

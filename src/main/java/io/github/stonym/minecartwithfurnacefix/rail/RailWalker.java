@@ -2,6 +2,7 @@ package io.github.stonym.minecartwithfurnacefix.rail;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
@@ -208,5 +209,30 @@ public final class RailWalker {
     }
     public static boolean isRail(Block block) {
         return block.getBlockData() instanceof Rail;
+    }
+
+    /**
+     * Whether a minecart standing here is on a rail.
+     *
+     * A cart rides with its feet on the rail surface, a sixteenth of a block
+     * above the floor of the block the rail lives in, so the block it occupies
+     * is the rail itself. The block below is accepted as well — an ascending
+     * rail puts its surface halfway up its own block, and the walker starts
+     * the track from the block the cart is in — but nothing above: a cart
+     * hovering over a track is not on it, and stoking that one would only put
+     * fuel in a cart that cannot couple to anything.
+     */
+    public static boolean standsOnRail(Location location) {
+        if (location == null) {
+            return false;
+        }
+        World world = location.getWorld();
+        if (world == null) {
+            return false;
+        }
+        int x = location.getBlockX();
+        int y = location.getBlockY();
+        int z = location.getBlockZ();
+        return isRail(world.getBlockAt(x, y, z)) || isRail(world.getBlockAt(x, y - 1, z));
     }
 }

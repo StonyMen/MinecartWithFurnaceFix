@@ -6,15 +6,15 @@ import io.github.stonym.minecartwithfurnacefix.train.TrainManager;
 import org.bukkit.scheduler.BukkitTask;
 
 /**
- * Owns the single per-tick task and the slow maintenance sweep.
+ * Owns the single per-tick task.
  *
  * There is exactly one task for the whole plugin: it walks the small list of
  * known trains. Nothing is driven from per-entity events, which is what keeps
- * the cost flat on a server with thousands of parked carts.
+ * the cost flat on a server with thousands of parked carts, and nothing sweeps
+ * the world on a timer either — a train is created by a stoke and lives until
+ * it derails or runs out of fuel.
  */
 public final class PluginManager {
-
-    private static final int MAINTAIN_INTERVAL = 20;
 
     private final MinecartWithFurnaceFix plugin;
 
@@ -22,7 +22,6 @@ public final class PluginManager {
     private TrainManager trainManager;
     private BukkitTask tickTask;
     private long startedAt;
-    private int tickCounter;
 
     public PluginManager(MinecartWithFurnaceFix plugin) {
         this.plugin = plugin;
@@ -42,7 +41,6 @@ public final class PluginManager {
     }
 
     private void tick() {
-        tickCounter++;
         if (!config.enabled) {
             return;
         }
@@ -50,9 +48,6 @@ public final class PluginManager {
         // would take the whole plugin down silently. Never let that happen.
         try {
             trainManager.tickAll();
-            if (tickCounter % MAINTAIN_INTERVAL == 0) {
-                trainManager.maintain();
-            }
         } catch (RuntimeException e) {
             plugin.getLogger().log(java.util.logging.Level.SEVERE, "train tick failed", e);
         }

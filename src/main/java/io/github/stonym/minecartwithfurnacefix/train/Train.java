@@ -74,22 +74,14 @@ public final class Train {
      * increasing {@code s}, -1 against it, 0 until it has been read once.
      *
      * Vanilla latches this between events: rolling, being pushed by hand,
-     * being blocked by a wall or jumping the rail never changes it, but two
-     * things do — letting the fuel burn out and stoking the cart again, and
-     * stoking it while it is still burning, because every stoke re-writes the
-     * push from the player's position. Re-deriving it from the push every tick
-     * was the bug that turned trains around mid-bend: the push is a fixed
-     * world vector, the rail turns 90 degrees under it, and the sign of the
-     * dot product flips as soon as the angle passes a right angle.
+     * being blocked by a wall or jumping the rail never changes it, but a
+     * stoke does, because every stoke re-writes the push from the player's
+     * position. Re-deriving it from the push every tick was the bug that
+     * turned trains around mid-bend: the push is a fixed world vector, the
+     * rail turns 90 degrees under it, and the sign of the dot product flips as
+     * soon as the angle passes a right angle.
      */
     private int pushSign;
-
-    /**
-     * Fuel reading at the end of the previous tick. A rise from zero is one of
-     * the two events that pick a direction; the other is a stoke, see
-     * {@link #reignite}.
-     */
-    private long lastFuel = -1;
 
     /**
      * A stoke the player just performed, as a horizontal unit vector pointing
@@ -133,6 +125,13 @@ public final class Train {
 
     /** Consecutive ticks the train has been standing still. */
     private int stallTicks;
+
+    /** Ticks since the train was assembled. */
+    private int age;
+
+    public int bumpAge() {
+        return ++age;
+    }
 
     /**
      * Cached rail section, with its origin at the engine. {@code s} is how far
@@ -225,10 +224,6 @@ public final class Train {
         return engine.isValid() && !engine.isDead();
     }
 
-    public void dissolveWagons() {
-        wagons.clear();
-    }
-
     public RailPath forward() {
         return forward;
     }
@@ -288,14 +283,6 @@ public final class Train {
 
     public void pushSign(int pushSign) {
         this.pushSign = pushSign;
-    }
-
-    public long lastFuel() {
-        return lastFuel;
-    }
-
-    public void lastFuel(long lastFuel) {
-        this.lastFuel = lastFuel;
     }
 
     public void dissolved(boolean dissolved) {

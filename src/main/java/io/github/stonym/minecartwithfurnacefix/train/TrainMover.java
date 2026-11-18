@@ -70,6 +70,13 @@ public final class TrainMover {
     /** What a vanilla minecart uses. Restored whenever a cart leaves a train. */
     private static final double VANILLA_MAX_SPEED = 0.4;
 
+    /**
+     * Ticks a freshly assembled train is allowed before its fuel is checked.
+     * Two is enough for the stoke that built it to land in the furnace, and
+     * short enough to be invisible.
+     */
+    private static final int FUEL_GRACE = 2;
+
     private final TrainManager manager;
     private PluginConfig config;
 
@@ -91,6 +98,22 @@ public final class TrainMover {
         ticks++;
         if (!train.engineAlive()) {
             manager.dissolve(train, "engine removed");
+            return;
+        }
+        // A consist only exists while the furnace is burning. The moment the
+        // last of the coal is gone the train is broken up: every cart is
+        // handed back to vanilla where it stands, so the player can push them
+        // around again and stokes the engine when they want the next run.
+        // Speed is deliberately left alone — dissolving gives the carts back
+        // to the game, and how they come to a stop is the game's business,
+        // not this plugin's.
+        //
+        // The first ticks are skipped: a train is assembled inside the interact
+        // event, and vanilla only puts the coal in the furnace after the event
+        // has been handled. Reading zero there would tear down the train the
+        // player just built, one tick after building it.
+        if (train.bumpAge() > FUEL_GRACE && train.engine().getFuel() <= 0) {
+            manager.dissolve(train, "out of fuel");
             return;
         }
         manager.dropGone(train);
@@ -173,7 +196,7 @@ public final class TrainMover {
         // cadence answers every question about the stop — is the rail still
         // there, did the player rebuild it, is this the end of the line — so
         // there is one schedule for all of it and no first-tick special case.
-        boolean stalled = Math.abs(speed) < config.stopSpeed;
+        boolean stalled = speed == 0.0;
         int stallTicks = stalled ? train.bumpStallTicks() : train.resetStallTicks();
         boolean frontLimit = noAhead
                 || forward.length() - maxOffset - EDGE_MARGIN - s < 0.25;
@@ -235,24 +258,42 @@ public final class TrainMover {
             }
         }
 
+        // Direction first: the dead-end test below and the speed after it both
+        // read from the same latched sign, and the test has to know which end
+        // of the line it is looking at.
+        latchDirection(train, forward, s);
+        int direction = train.pushSign();
+
         // The cache now matches the ground, so this is the real answer to
-        // "is there still track in front of the train?". If there is not, the
-        // train cannot get itself out of the situation: every cart in it is
-        // pinned (max speed zero, no physics), so the player cannot push it,
-        // cannot tow it, and the wagons are welded to the furnace. A line that
-        // ends here is either a rail someone tore out or a track that was
-        // never finished — both mean this consist is going nowhere until it is
-        // rebuilt. Hand the carts back to vanilla instead of leaving them
-        // stuck; because it is only reached on a retry tick, a dead end is
-        // confirmed within one STALL_RETRY_TICKS window.
-        boolean deadEnd = forward.isEmpty()
-                || forward.length() - maxOffset - EDGE_MARGIN - s < 0.25;
+        // "is there still track in the direction the train is going?". If there
+        // is not, the train cannot get itself out of the situation: every cart
+        // in it is pinned (max speed zero, no physics), so the player cannot
+        // push it, cannot tow it, and the wagons are welded to the furnace. A
+        // line that ends here is either a rail someone tore out or a track
+        // that was never finished — both mean this consist is going nowhere
+        // until it is rebuilt. Hand the carts back to vanilla instead of
+        // leaving them stuck; because it is only reached on a retry tick, a
+        // dead end is confirmed within one STALL_RETRY_TICKS window.
+        //
+        // Which end to look at is the end the train is heading for. A consist
+        // stoked from the front runs backwards: it has a long path ahead of it
+        // and none behind, so judging by `forward` alone let it sit at the torn
+        // end it had just reversed into, burning coal, until the tank ran dry.
+        // The latched push sign still says which way it was going after the
+        // clamp has brought it to a standstill.
+        double frontRoom = forward.isEmpty()
+                ? 0.0
+                : forward.length() - maxOffset - EDGE_MARGIN - s;
+        double backRoom = (backward == null ? 0.0 : backward.length())
+                + minOffset - EDGE_MARGIN + s;
+        boolean deadEnd = direction != 0
+                && (direction < 0 ? backRoom : frontRoom) < 0.25;
         if (stalled && deadEnd) {
             manager.derail(train, "the track ends here");
             return;
         }
 
-        speed = updateSpeed(train, engine, forward, backward, s);
+        speed = direction * config.cruiseSpeed;
 
         // A wall in front of the train shortens the usable path. Clamping here
         // stops the engine from pushing the rest of the train into the wall:
@@ -394,51 +435,36 @@ public final class TrainMover {
     }
 
     /**
-     * Speed for this tick.
+     * Latches which way along the rail the furnace is pushing.
      *
      * A lit furnace drives the train at a constant {@code cruise-speed}:
      * vanilla moves a furnace minecart at 4 blocks a second — 0.2 blocks per
      * tick, a little slower than walking — and neither a downhill nor a
-     * powered rail changes that. Nothing here accelerates, coasts on a grade or
-     * brakes while there is fuel left, which is also why no incline can hold
-     * the train back.
+     * powered rail changes that. Nothing accelerates, coasts on a grade or
+     * brakes, which is also why no incline can hold the train back.
      *
-     * Without fuel the train only coasts: friction, rolling resistance and the
-     * grade, in whichever direction it happens to be rolling, up to the normal
-     * minecart limit.
+     * The only thing that can change is the direction, and only on a stoke.
+     * Everything else keeps the latched sign, which is what stops a bend from
+     * turning the train around.
      */
-    private double updateSpeed(Train train, PoweredMinecart engine,
-            RailPath forward, RailPath backward, double s) {
-        long fuel = engine.getFuel();
+    private void latchDirection(Train train, RailPath forward, double s) {
         Vector stoke = train.consumeReignite();
-
-        if (fuel > 0) {
-            // Two events may pick a direction: a stoke, and the fuel going
-            // from nothing to something. Everything else keeps the latched
-            // one, which is what stops a bend from turning the train around.
-            if (stoke != null || train.lastFuel() <= 0 || train.pushSign() == 0) {
-                Vector push = stoke != null ? stoke
-                        : new Vector(engine.getPushX(), 0.0, engine.getPushZ());
-                Vector tangent = forward == null || forward.isEmpty()
-                        ? flatten(train.heading())
-                        : forward.tangentAt(Math.max(0.0, s));
-                int latched = signOf(push, tangent, train.pushSign());
-                if (latched != 0 && latched != train.pushSign()) {
-                    if (config.debug) {
-                        manager.log("train " + train.id() + ": direction " + latched
-                                + (stoke != null ? " (stoked)" : " (ignited)"));
-                    }
-                    train.pushSign(latched);
-                }
-            }
-            train.lastFuel(fuel);
-            return train.pushSign() * config.cruiseSpeed;
+        if (stoke == null && train.pushSign() != 0) {
+            return;
         }
-
-        train.lastFuel(0);
-        return SpeedModel.coast(train.speed(), config.friction,
-                config.rollingResistance, config.gravity,
-                slopeAt(forward, backward, s), config.maxSpeed, config.stopSpeed);
+        Vector push = stoke != null ? stoke
+                : new Vector(train.engine().getPushX(), 0.0, train.engine().getPushZ());
+        Vector tangent = forward == null || forward.isEmpty()
+                ? flatten(train.heading())
+                : forward.tangentAt(Math.max(0.0, s));
+        int latched = signOf(push, tangent, train.pushSign());
+        if (latched != 0 && latched != train.pushSign()) {
+            if (config.debug) {
+                manager.log("train " + train.id() + ": direction " + latched
+                        + (stoke != null ? " (stoked)" : " (ignited)"));
+            }
+            train.pushSign(latched);
+        }
     }
 
     /**
@@ -543,21 +569,6 @@ public final class TrainMover {
         return false;
     }
 
-    /**
-     * dY/ds of the rail under the engine, in the path's own frame.
-     *
-     * Behind the origin {@code s} is negative and the engine is standing on the
-     * backward path, whose tangent points the other way; its Y has to be
-     * negated or a train rolling back down a hill would feel no grade at all
-     * and just coast to a stop halfway down.
-     */
-    private static double slopeAt(RailPath forward, RailPath backward, double s) {
-        if (s >= 0.0) {
-            return forward == null ? 0.0 : forward.tangentAt(s).getY();
-        }
-        return backward == null ? 0.0 : -backward.tangentAt(-s).getY();
-    }
-
     /** Horizontal unit vector of {@code raw}, or null when it has no direction. */
     private static Vector flatten(Vector raw) {
         if (raw == null) {
@@ -567,19 +578,6 @@ public final class TrainMover {
         return flat.lengthSquared() < 1.0E-6 ? null : flat.normalize();
     }
 
-    /**
-     * Slides every cart towards an even spacing.
-     *
-     * A train inherits whatever gaps it was assembled with: one pair may be
-     * 1.05 apart and the next 3.2. Once the train is rolling, each cart creeps
-     * along the rail towards its ordinal slot by at most
-     * {@code spacing-converge} per tick, so the gaps end up identical without
-     * any visible jump.
-     *
-     * Skipped while parked, because a train standing still is either being
-     * loaded by hand or serving as decoration, and moving the carts then would
-     * fight the player.
-     */
     /**
      * Nearest first on both sides, so slot 1 is always the closest cart.
      */
@@ -594,11 +592,24 @@ public final class TrainMover {
     private final List<Train.Member> ahead = new ArrayList<>();
     private final List<Train.Member> behind = new ArrayList<>();
 
+    /**
+     * Slides every cart towards an even spacing.
+     *
+     * A train inherits whatever gaps it was assembled with: one pair may be
+     * 1.05 apart and the next 3.2. Once the train is rolling, each cart creeps
+     * along the rail towards its ordinal slot by at most
+     * {@code spacing-converge} per tick, so the gaps end up identical without
+     * any visible jump.
+     *
+     * Skipped while parked, because a train standing still is either being
+     * loaded by hand or serving as decoration, and moving the carts then would
+     * fight the player.
+     */
     private void evenOutSpacing(Train train, double speed) {
         if (config.spacingConverge <= 0.0 || train.wagons().isEmpty()) {
             return;
         }
-        if (Math.abs(speed) < config.stopSpeed) {
+        if (speed == 0.0) {
             return;
         }
 
@@ -681,10 +692,25 @@ public final class TrainMover {
      */
     private Rebuild keepDirection(Train train, RailPath before, double beforeS,
             Rebuild rebuilt) {
-        if (before == null || before.isEmpty() || rebuilt.forward().isEmpty()) {
+        if (rebuilt.forward().isEmpty()) {
             return rebuilt;
         }
-        Vector was = before.tangentAt(Math.max(0.0, Math.min(before.length(), beforeS)));
+        Vector was;
+        if (before != null && !before.isEmpty()) {
+            was = before.tangentAt(Math.max(0.0, Math.min(before.length(), beforeS)));
+        } else {
+            // First rebuild after the assembly: there is no cached path to
+            // compare against, but the train was built along a known heading
+            // and every offset means "this side" in that frame. The walker may
+            // well have come back with the line pointing the other way (it
+            // tries four axes when the heading itself has no track), so the
+            // heading is what keeps the first placement from flipping the
+            // whole consist around the furnace.
+            was = flatten(train.heading());
+        }
+        if (was == null) {
+            return rebuilt;
+        }
         Vector now = rebuilt.forward().tangentAt(0.0);
         if (was.getX() * now.getX() + was.getZ() * now.getZ() >= -0.5) {
             return rebuilt;
@@ -767,8 +793,14 @@ public final class TrainMover {
         return snap(facing);
     }
 
-    /** Axis-aligns a freshly read push or facing vector. */
-    private static Vector snap(Vector raw) {
+    /**
+     * Axis-aligns a freshly read push or facing vector.
+     *
+     * Shared with the assembly: a train is built along the direction the stoke
+     * points, and the mover has to walk it the same way on the next tick or
+     * every cart's offset ends up meaning the other side of the engine.
+     */
+    public static Vector snap(Vector raw) {
         Vector flat = raw.clone().setY(0.0);
         if (flat.lengthSquared() < 1.0E-6) {
             return new Vector(0.0, 0.0, 1.0);

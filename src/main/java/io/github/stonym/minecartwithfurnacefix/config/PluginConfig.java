@@ -21,6 +21,7 @@ public final class PluginConfig {
     public final double detachDistance;
     public final int pathFailLimit;
     public final int scanInterval;
+    public final boolean clearFuelOnDerail;
 
     public final int lookaheadBlocks;
 
@@ -58,6 +59,8 @@ public final class PluginConfig {
                 : Math.max(1.0, rawDetach);
 
         this.pathFailLimit = Math.max(1, c.getInt("train.path-fail-limit", 100));
+
+        this.clearFuelOnDerail = c.getBoolean("train.clear-fuel-on-derail", true);
 
         this.scanInterval = Math.max(1, c.getInt("train.scan-interval", 10));
 

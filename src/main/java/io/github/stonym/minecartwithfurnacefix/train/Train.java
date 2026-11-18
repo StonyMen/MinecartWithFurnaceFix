@@ -290,6 +290,18 @@ public final class Train {
         return 0;
     }
 
+    /** Ticks since the last look at the rail ahead of the leading cart. */
+    private int probeTicks;
+
+    public int bumpProbeTicks() {
+        return ++probeTicks;
+    }
+
+    public int resetProbeTicks() {
+        probeTicks = 0;
+        return 0;
+    }
+
     public int pushSign() {
         return pushSign;
     }

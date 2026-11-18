@@ -49,6 +49,24 @@ public final class TrainMover {
      */
     private static final double PUSH_CLEAR = 0.25;
 
+    /**
+     * How much clear track the train must see ahead of its leading cart before
+     * a gap counts as "still far enough away". One block, the same as before.
+     */
+    private static final double PROBE_AHEAD = 1.0;
+
+    /**
+     * Spacing of the sample points inside one probe window.
+     *
+     * Half a block means every rail block the window crosses is looked at from
+     * two path points, so a sample that happens to land exactly on a block
+     * boundary cannot step into the neighbouring column and miss it.
+     */
+    private static final double PROBE_STEP = 0.5;
+
+    /** Vertical steps the walker tries when it looks for the next rail. */
+    private static final int[] PROBE_DY = {0, 1, -1};
+
     /** What a vanilla minecart uses. Restored whenever a cart leaves a train. */
     private static final double VANILLA_MAX_SPEED = 0.4;
 
@@ -138,17 +156,29 @@ public final class TrainMover {
                 && forward.length() >= maxOffset + EDGE_MARGIN + 1.0;
         double backwardLength = backward == null ? 0.0 : backward.length();
 
-        // Running out of track in front is not only a cache problem: it is also
-        // what a wall, the end of the line, or a rail someone removed looks
-        // like. While the train stands there, re-walking every tick would only
-        // find the same dead end, so look again every half second instead —
-        // that is enough to pick up track a player builds in front of it.
+        // The cache is a memory of where the track was, not a fact about where
+        // it is. A rail torn out of the line stays in it, and the train drives
+        // over the gap as if the block were still there. Looking is not free,
+        // though, so it rides the same half-second cadence as the rest of the
+        // stalled-train work — and the window it inspects covers everything
+        // the train will travel before it looks again, so a gap cannot slip
+        // between two probes.
+        int probeTick = speed == 0.0 ? train.resetProbeTicks() : train.bumpProbeTicks();
+        boolean gapAhead = speed != 0.0 && probeTick % STALL_RETRY_TICKS == 1
+                && railGoneAhead(world, forward, backward, s, speed, maxOffset, minOffset);
+
+        // While the train stands there, re-walking every tick would only find
+        // the same dead end, so look again every half second instead. The same
+        // cadence answers every question about the stop — is the rail still
+        // there, did the player rebuild it, is this the end of the line — so
+        // there is one schedule for all of it and no first-tick special case.
         boolean stalled = Math.abs(speed) < config.stopSpeed;
         int stallTicks = stalled ? train.bumpStallTicks() : train.resetStallTicks();
         boolean frontLimit = noAhead
                 || forward.length() - maxOffset - EDGE_MARGIN - s < 0.25;
 
         boolean stale = noAhead
+                || gapAhead
                 || (canExtend && s + speed + maxOffset > forward.length() - EDGE_MARGIN)
                 || s + speed + minOffset < -backwardLength + EDGE_MARGIN
                 || (stalled && frontLimit);
@@ -206,6 +236,23 @@ public final class TrainMover {
                     return;
                 }
             }
+        }
+
+        // The cache now matches the ground, so this is the real answer to
+        // "is there still track in front of the train?". If there is not, the
+        // train cannot get itself out of the situation: every cart in it is
+        // pinned (max speed zero, no physics), so the player cannot push it,
+        // cannot tow it, and the wagons are welded to the furnace. A line that
+        // ends here is either a rail someone tore out or a track that was
+        // never finished — both mean this consist is going nowhere until it is
+        // rebuilt. Hand the carts back to vanilla instead of leaving them
+        // stuck; because it is only reached on a retry tick, a dead end is
+        // confirmed within one STALL_RETRY_TICKS window.
+        boolean deadEnd = forward.isEmpty()
+                || forward.length() - maxOffset - EDGE_MARGIN - s < 0.25;
+        if (stalled && deadEnd) {
+            manager.derail(train, "the track ends here");
+            return;
         }
 
         speed = updateSpeed(train, engine, forward, backward, s);
@@ -429,6 +476,72 @@ public final class TrainMover {
         }
         Vector flat = raw.clone().setY(0.0);
         return flat.lengthSquared() < 1.0E-8 ? null : flat.normalize();
+    }
+
+    /**
+     * True when a rail between the leading cart and the far end of the next
+     * probe window is gone.
+     *
+     * Re-walking the whole line every tick would defeat the path cache, and a
+     * block-break listener only catches players — not pistons, explosions,
+     * {@code /setblock} or another plugin. So the path is sampled instead, on
+     * the same half-second cadence the rest of the stalled-train work uses.
+     *
+     * Looking every ten ticks means the train covers up to
+     * {@code 10 * |speed|} blocks between two checks, which is why the window
+     * is that long plus {@link #PROBE_AHEAD}: sampled every
+     * {@link #PROBE_STEP}, the windows of consecutive checks overlap, so the
+     * train always knows about a gap at least one block before it reaches it
+     * and no gap can slip through the seam between two probes.
+     *
+     * The point is looked up as a block column, not as a block: rail geometry
+     * puts its sample points on block boundaries, so the coordinate under a
+     * point can flip to the neighbour. The walker itself only ever steps to a
+     * rail that shares an edge height with the rails {@code dy} in
+     * {0, +1, -1} away, so asking the same three blocks whether any of them is
+     * still rail is both safe and faithful.
+     */
+    private boolean railGoneAhead(World world, RailPath forward, RailPath backward,
+            double s, double speed, double maxOffset, double minOffset) {
+        if (speed == 0.0) {
+            return false;
+        }
+        boolean goingForward = speed > 0.0;
+        double front = goingForward ? Math.max(s, s + maxOffset) : Math.min(s, s + minOffset);
+        double reach = PROBE_AHEAD + Math.abs(speed) * STALL_RETRY_TICKS;
+
+        for (double step = PROBE_STEP; step <= reach + 1.0E-9; step += PROBE_STEP) {
+            double along = front + (goingForward ? step : -step);
+
+            Vector point;
+            if (along >= 0.0) {
+                if (forward == null || forward.isEmpty() || along > forward.length()) {
+                    // Beyond the cached section; the rebuild conditions handle it.
+                    return false;
+                }
+                point = forward.pointAt(along);
+            } else {
+                if (backward == null || backward.isEmpty() || -along > backward.length()) {
+                    return false;
+                }
+                point = backward.pointAt(-along);
+            }
+
+            int x = point.getBlockX();
+            int y = point.getBlockY();
+            int z = point.getBlockZ();
+            boolean railHere = false;
+            for (int dy : PROBE_DY) {
+                if (RailWalker.isRail(world.getBlockAt(x, y + dy, z))) {
+                    railHere = true;
+                    break;
+                }
+            }
+            if (!railHere) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
